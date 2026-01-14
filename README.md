@@ -1,5 +1,7 @@
 # AI Atendimento
 
+Este projeto nasceu da necessidade de automatizar o atendimento em pizzarias locais, solucionando dores reais do comércio. O desenvolvimento uniu tecnologias que eu já dominava a novas stacks que integrei durante meus estudos. Atualmente, o fluxo principal de atendimento está estável e funcional. O projeto encontra-se em fase de lapidação em ambiente local, com foco total no refinamento da arquitetura multi-tenant.
+
 Projeto com dois componentes principais:
 
 - **API**: backend (FastAPI) responsável por receber webhooks do WhatsApp/provider, orquestrar atendimento via IA, gerenciar carrinho/pedidos no Supabase, estoque e rotinas (cron).
