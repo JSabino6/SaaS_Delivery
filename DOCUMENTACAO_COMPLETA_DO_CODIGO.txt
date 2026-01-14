@@ -1,0 +1,410 @@
+DOCUMENTAÇÃO TÉCNICA (HANDOFF) — SaaS Atendimento WhatsApp (AI + Pedidos + Dashboard + Pix)
+Data: 2026-01-11
+Versão do doc: 2.0
+
+Objetivo deste documento
+- Explicar o sistema “de ponta a ponta” (do recebimento da mensagem até o envio da resposta).
+- Descrever arquitetura, tabelas, variáveis de ambiente, estados (FSM) e fluxo de pedidos/pagamentos.
+- Servir como guia para manutenção/evolução com segurança (incluindo idempotência, estoque e cron).
+
+============================================================
+1) VISÃO GERAL (O que é o sistema?)
+============================================================
+Este projeto é um SaaS de atendimento para restaurantes via WhatsApp. Ele:
+1) Recebe mensagens via provedor (Uazapi).
+2) Interpreta a intenção do cliente usando IA (Groq / LLM) retornando JSON.
+3) Mantém estado e histórico no Supabase (Postgres).
+4) Mantém carrinho/pedidos e calcula valores no backend (IA não calcula preço).
+5) Controla estoque de forma atômica via RPC no banco.
+6) Faz checkout (endereço/entrega/forma de pagamento).
+7) Opcionalmente, gera Pix no WhatsApp via Mercado Pago por restaurante e confirma pedido apenas após webhook approved.
+8) Possui Dashboard (Streamlit) para restaurante e Admin.
+
+Componentes principais
+- Backend: FastAPI em API/main.py
+  - Webhook WhatsApp: POST /webhook
+  - Webhook Mercado Pago: POST /webhook/mercadopago
+  - QR PNG Pix: GET /payments/qr/{payment_id}.png
+  - Cron público (protegido por secret): GET /cron/avaliar
+  - Cron carrinho abandonado (protegido por secret): GET /cron/abandoned-carts
+  - Healthcheck: GET /health
+
+- Dashboard: Streamlit em Dashboard/app.py
+  - Login Admin via .env
+  - Login restaurante via tabela restaurantes (usuario/senha)
+  - Gestão de pedidos/cardápio/config
+  - Configuração token Mercado Pago (criptografado)
+  - Admin habilita/desabilita “Pix no WhatsApp” por restaurante
+
+- Banco: Supabase (Postgres)
+  - tabelas: restaurantes, pedidos, produtos, bairros, conversas, clientes_estado
+  - RPC: movimentar_estoque_seguro (função SQL)
+
+- Redis (opcional, recomendado)
+  - rate-limit do webhook
+  - deduplicação de evento (idempotência)
+  - buffer de mensagens + debounce
+  - cache de dados do restaurante
+  - locks distribuídos (reduzir processamento duplicado)
+
+============================================================
+2) ESTRUTURA DO REPOSITÓRIO
+============================================================
+Raiz
+- docker-compose.yml
+- DOCUMENTACAO_COMPLETA_DO_CODIGO.txt (este arquivo)
+- SECURITY_NEXT_STEPS.md
+- supabase_payments.sql
+- Simulador_zap.py (teste simples de Postgres via psycopg2; não simula webhook)
+- mainlast.py / main2(semredis).py (legados; oficial: API/main.py)
+
+Pasta API/
+- main.py (FastAPI: webhook, IA, carrinho, estoque, pagamentos, cron)
+- requirements.txt
+- Dockerfile
+- teste_zap.py (diagnóstico: env, supabase, envio whatsapp, groq)
+
+Pasta Dashboard/
+- app.py (Streamlit)
+- requirements.txt
+- Dockerfile
+
+============================================================
+3) VARIÁVEIS DE AMBIENTE (.env)
+============================================================
+Obrigatórias (core)
+- SUPABASE_URL
+- SUPABASE_KEY
+- GROQ_API_KEY
+- WEBHOOK_SECRET
+
+Recomendadas (robustez/custo/anti-abuso)
+- REDIS_URL (habilita dedup + buffer + rate-limit + cache + locks)
+- WEBHOOK_RATE_LIMIT_PER_MIN (default 60; por conversa/conv_key)
+- MESSAGE_DEBOUNCE_SECONDS (default 5; janela sem msg para “juntar” texto)
+- HTTP_VERIFY_TLS (default true)
+- MAX_QTD_ITEM (default 10)
+- MAX_WEBHOOK_BODY_BYTES (default 262144 / 256KB) — limita JSON do webhook
+- MAX_INCOMING_TEXT_CHARS (default 4000) — limita texto individual
+- MAX_BUFFER_TEXT_CHARS (default 8000) — limita texto agregado antes de chamar IA
+
+Pagamentos (Pix no WhatsApp)
+- CRED_ENCRYPTION_KEY (Fernet) — mesma chave no Backend e Dashboard
+- MP_WEBHOOK_TOKEN — valida webhook do Mercado Pago
+- PUBLIC_BASE_URL — base pública para links de QR e configuração do webhook (sem barra no final)
+
+Dashboard (Admin)
+- ADMIN_USER
+- ADMIN_PASS
+
+Cron
+- CRON_SECRET — protegido via query param `token` ou header `x-cron-secret` (função `_cron_authed`)
+
+============================================================
+4) BANCO DE DADOS (Tabelas e campos)
+============================================================
+Atenção importante sobre IDs (“restaurante_id”)
+- Em pedidos: restaurante_id = ID numérico do restaurante (restaurantes.id)
+- Em conversas e clientes_estado: restaurante_id = phone_id (string) do restaurante
+
+⚠️ Esse duplo significado é um risco real de bug operacional. Recomenda-se padronizar (ver seção “Melhorias”).
+
+4.1) restaurantes (campos consumidos)
+- id (bigint)
+- nome
+- phone_id (string, ex “5585...”)
+- instance_name
+- instance_token (token para enviar mensagens pela Uazapi)
+- bot_ativo (bool)
+- mensagem_fechado
+- system_prompt
+- taxa_entrega_padrao (numeric)
+
+Pagamentos:
+- pix_whatsapp_enabled (bool)
+- pix_provider (text; atual “mercadopago”)
+- mp_access_token_enc (text; token MP criptografado)
+
+4.2) produtos
+- restaurante_id (numérico)
+- nome, preco, estoque (nullable), disponivel, descricao, categoria
+
+Observação: itens com estoque 0 podem continuar aparecendo no cardápio (marcados como “ESGOTADO”) para evitar “sumir” e confundir o cliente.
+
+4.3) bairros
+- restaurante_id (numérico)
+- nome, taxa, ativo
+
+4.4) pedidos
+- id, restaurante_id (numérico), cliente_zap, carrinho_json, resumo_pedido, total_valor, status, endereco_completo, tipo_entrega, forma_pagamento,
+  finalizado_em, msg_avaliacao_enviada, avaliacao
+
+Pagamentos:
+- payment_provider, payment_id, payment_status, payment_amount, payment_qr_code, payment_ticket_url, payment_created_at, payment_paid_at
+
+4.5) conversas
+- cliente_zap
+- restaurante_id (phone_id string)
+- role (user/assistant)
+- mensagem
+- created_at
+
+4.6) clientes_estado
+- cliente_zap
+- restaurante_id (phone_id string)
+- estado_conversa
+- dados_parciais (json)
+- ultima_mensagem_em (timestamptz)
+
+4.7) RPC movimentar_estoque_seguro
+Backend chama:
+- supabase.rpc("movimentar_estoque_seguro", {p_restaurante_id, p_nome_produto, p_delta_qtd})
+
+Contrato esperado:
+- Retorna JSON com:
+  - sucesso (bool)
+  - msg (string)
+  - novo_estoque (int) quando sucesso
+  - estoque_atual (int) quando falha
+- Deve ser atômica e impedir estoque negativo.
+
+============================================================
+5) ARQUITETURA DE EXECUÇÃO (Docker)
+============================================================
+- backend: uvicorn (FastAPI) na porta 8000
+- dashboard: streamlit na porta 8501
+- redis: opcional (se configurado no compose)
+
+============================================================
+6) FLUXO PRINCIPAL — RECEBER MENSAGEM E RESPONDER
+============================================================
+Arquivo: API/main.py
+
+6.1) O que chega no webhook
+Endpoint: POST /webhook
+- JSON do provedor Uazapi (campos variam).
+- Extrações importantes:
+  - Identificador da instância (restaurante): instanceName/instance
+  - Dados da mensagem: body["message"] (texto, ids, sender, etc.)
+  - Nome do cliente (quando houver)
+
+6.2) Autenticação do webhook
+- Se WEBHOOK_SECRET está definido:
+  - valida header `x-webhook-secret` ou query param `token`
+  - falha => “unauthorized”
+
+6.3) Identificar restaurante
+- Usa instanceName para buscar restaurante:
+  - get_dados_restaurante(instance, tipo="instance_name")
+- get_dados_restaurante:
+  - tenta Redis (cache)
+  - consulta Supabase
+  - carrega cardápio estruturado (produtos)
+  - carrega taxas de entrega priorizando tabela `bairros` (fallback: texto em `restaurantes.taxas_entrega`)
+  - salva no Redis por ~600s (por phone_id e instance_name)
+
+6.4) Identificar cliente
+- Extração “best effort” de cliente_zap (evita confundir com o número do restaurante e evita grupos):
+  - tenta campos como sender/participant/author/from/remoteJid, etc.
+- conv_key recomendado: f"{phone_id}:{cliente_zap}"
+
+6.5) Proteções (quando Redis está ligado)
+- Rate-limit por conversa:
+  - key: ratelimit:webhook:{conv_key}
+- Deduplicação de evento (idempotência):
+  - extrai ID estável (messageId/wamid/key.id etc) ou hash do payload
+  - key: dedup:webhook:{conv_key}:{event_id}
+- Locks (reduzir duplicidade entre workers):
+  - lock:process:{conv_key}
+  - lock por ações sensíveis (ex.: cleanup de carrinho abandonado)
+
+6.6) Buffer + Debounce (juntar mensagens)
+Objetivo: se o cliente manda várias mensagens rápidas, processar como uma só.
+- As mensagens são bufferizadas no Redis (lista).
+- O “debounce” espera `MESSAGE_DEBOUNCE_SECONDS` (default 5s) sem mensagens novas.
+- Depois:
+  - lê buffer, concatena e corta em `MAX_BUFFER_TEXT_CHARS` (se configurado)
+  - chama processar_mensagem_final(...)
+
+6.7) Envio de resposta
+Função: enviar_zap(phone_id, numero, texto)
+- resolve token da instância (instance_token)
+- POST Uazapi: /send/text
+- possui retry curto e logs estruturados.
+
+============================================================
+7) FSM — Máquina de estados
+============================================================
+Persistência: clientes_estado
+
+Funções
+- get_estado(cliente_zap, phone_id)
+- set_estado(cliente_zap, phone_id, novo_estado, dados_extras)
+- touch_estado_last_message (evita falso abandono)
+
+Estados principais (resumo)
+- INICIO: conversa livre (vai para IA)
+- FORCAR_IA: interceptador para voltar à IA em estados intermediários quando cliente tenta alterar pedido
+- AGUARDANDO_ENDERECO: coleta endereço+bairro
+- AGUARDANDO_PAGAMENTO: coleta forma de pagamento
+- AGUARDANDO_PAGAMENTO_PIX: aguardando aprovação do MP (não confirmar o pedido antes disso)
+- AGUARDANDO_AVALIACAO_POS_VENDA: aguardando nota 1..5
+
+============================================================
+8) IA — Como a decisão acontece (Groq)
+============================================================
+- A IA retorna JSON (intenção + itens).
+- O backend valida/sanitiza a resposta (anti-bug) antes de aplicar no carrinho.
+- O backend faz match com cardápio e aplica regras (preço/estoque). IA não “cria preço”.
+
+============================================================
+9) CARRINHO + ESTOQUE (anti prejuízo)
+============================================================
+- Guardrails anti “pedido grátis”:
+  - não adiciona item se não existe no cardápio ou preço <= 0
+- Limite por item:
+  - MAX_QTD_ITEM
+- Estoque via RPC:
+  - adicionar => delta negativo
+  - remover => delta positivo
+  - fixar => diferença (reservar/devolver)
+
+============================================================
+10) FECHAMENTO — Endereço, taxa e pagamento
+============================================================
+- Taxas:
+  - Prioriza bairros ativos na tabela `bairros`
+  - Fallback: parsing de texto em restaurantes.taxas_entrega
+- Detecta “retirada no local” por palavras-chave (sem taxa, fluxo distinto de entrega)
+- Forma de pagamento:
+  - Pix / Dinheiro / Cartão
+  - Pix no WhatsApp só entra se habilitado e token configurado; caso contrário, orientar opções alternativas.
+
+============================================================
+11) PAGAMENTOS — Pix no WhatsApp (Mercado Pago)
+============================================================
+- Token MP por restaurante (criptografado em mp_access_token_enc; decriptado no backend).
+- Criação de cobrança:
+  - external_reference = pedido_id (string)
+  - transaction_amount = total do pedido
+- Webhook MP:
+  - valida MP_WEBHOOK_TOKEN
+  - consulta MP para status real
+  - valida external_reference e amount antes de liberar pedido
+  - se approved: status do pedido vai para confirmado e envia confirmação ao cliente
+
+============================================================
+12) CRON — Pesquisa de avaliação e carrinho abandonado
+============================================================
+12.1) /cron/avaliar (GET)
+- Protegido por CRON_SECRET (via `_cron_authed`)
+- Busca pedidos finalizados com msg_avaliacao_enviada=false
+- Se finalizado_em >= 30min:
+  - marca msg_avaliacao_enviada=true ANTES do envio (at-most-once)
+  - envia mensagem solicitando nota 1..5
+  - muda estado para AGUARDANDO_AVALIACAO_POS_VENDA
+
+12.2) /cron/abandoned-carts (GET)
+- Requer Redis (para idempotência/locks)
+- Critérios (configuráveis):
+  - lembrete após CART_ABANDONED_REMINDER_MIN (default 10)
+  - cancelamento/limpeza após CART_ABANDONED_CANCEL_MIN (default 15)
+- Ações:
+  - lembrete 1x (dedup Redis)
+  - limpeza idempotente: cancela pedido, limpa carrinho e devolve estoque via RPC
+  - não mexe com Pix pendente (evita cancelar cobrança em aberto)
+
+============================================================
+13) DASHBOARD — Como funciona
+============================================================
+- Admin via ADMIN_USER/ADMIN_PASS
+- Restaurante via tabela restaurantes (atenção: senha em texto puro; ver melhorias)
+- Configuração Pix:
+  - Admin liga/desliga pix_whatsapp_enabled
+  - Restaurante salva access token (criptografado)
+
+============================================================
+14) TESTES/DIAGNÓSTICOS
+============================================================
+- API/teste_zap.py: valida env + supabase + envio WhatsApp + Groq
+- Simulador_zap.py: teste Postgres (não simula webhook)
+
+============================================================
+15) MELHORIAS A SEREM FEITAS
+============================================================
+- Segurança: Supabase Auth + RLS; não usar service-role no dashboard; hash de senha.
+- Padronização: separar claramente restaurante_id numérico vs phone_id string em todas as tabelas.
+- Observabilidade: request_id/event_id/conv_key em logs + tabela de auditoria.
+- Webhook robusto: persistir payloads críticos (opcional) para replay.
+
+============================================================
+16) DIAGRAMA (ASCII) — Visão rápida
+============================================================
+(1) Cliente -> WhatsApp
+(2) Provedor -> POST /webhook
+(3) Backend: auth + dedup/rate-limit + buffer/debounce
+(4) Backend: estado/FSM ou IA
+(5) Backend: carrinho/estoque/pedido
+(6) Backend -> Uazapi send/text
+
+Pix (opcional)
+(7) cria cobrança MP -> estado=AGUARDANDO_PAGAMENTO_PIX
+(8) MP -> POST /webhook/mercadopago
+(9) valida + approved -> confirma pedido
+
+============================================================
+17) BIBLIOTECAS USADAS (o que cada uma faz neste código)
+============================================================
+Abaixo, foco no “por quê existe aqui” (não é explicação genérica da linguagem).
+
+Web/API
+- fastapi: framework web (rotas, middleware, Request).
+- fastapi.responses (Response/JSONResponse): respostas HTTP (PNG, JSON, erros).
+
+HTTP/Integrações
+- requests: chamadas HTTP para Uazapi e Mercado Pago.
+- urllib3: suprimir warning quando HTTP_VERIFY_TLS=false (somente dev).
+
+Dados/Serialização
+- json: parse/serialize payloads e cache Redis.
+- decimal (Decimal, ROUND_HALF_UP): arredondamento determinístico de dinheiro.
+- hashlib: hash SHA-256 para dedup quando não há messageId estável.
+- uuid: gerar request_id/lock token.
+
+Texto/Match/Normalização
+- re: regex (extração, sanitização, normalização).
+- difflib: fuzzy matching de bairros/itens (get_close_matches).
+- unicodedata: remover acentos e normalizar texto (pt-BR).
+- copy: cópia de dict (ex.: ao montar “nome_display” no cardápio).
+
+Tempo/Async
+- asyncio: tasks/controle assíncrono (debounce).
+- time: backoff/sleep em retries (envio WhatsApp).
+- datetime (datetime/timedelta/timezone): timestamps UTC, cálculos de inatividade, cron.
+
+Infra/Runtime
+- os: variáveis de ambiente e paths.
+- sys: ajuste de sys.path para importar logging_setup.
+- pathlib.Path: montar caminhos absolutos/relativos de forma portável.
+- collections.defaultdict: buffers/estruturas com default (quando usado).
+
+Banco/IA
+- supabase (create_client, Client): acesso ao Postgres via Supabase (select/update/insert/rpc).
+- groq (Groq): cliente do provedor LLM para inferência (retorno JSON).
+- dotenv (load_dotenv): carregar .env localmente.
+
+Cache/Concorrência
+- redis: cache, rate-limit, dedup (SET NX), locks (SET NX + token), buffer de mensagens.
+
+Cripto/Segredos
+- cryptography.fernet (Fernet): criptografar/decriptar o token do Mercado Pago (mp_access_token_enc).
+
+QR Code
+- qrcode: gerar imagem PNG do “copia e cola” Pix (endpoint /payments/qr/...)
+
+Logs
+- logging: logging padrão Python.
+- pythonjsonlogger: formato JSON para logs (melhor para observabilidade).
+
+============================================================
+FIM
