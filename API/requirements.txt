@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+supabase
+groq
+python-dotenv
+requests
+asyncio
+redis
+cryptography
+qrcode[pil]

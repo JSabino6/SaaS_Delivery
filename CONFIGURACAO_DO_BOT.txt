@@ -1,0 +1,305 @@
+CHECKLIST DE CONFIGURAÇÃO — Bot de Atendimento WhatsApp (API + Dashboard + Pix + Cron + Redis)
+Data: 2026-01-12
+
+Este arquivo é um guia prático com TUDO que precisa estar configurado para o bot funcionar (ambiente, Supabase, Redis, cron/jobs, provedor WhatsApp/Uazapi, Mercado Pago, logs e deploy).
+
+============================================================
+1) Componentes do sistema
+============================================================
+1.1 API (FastAPI)
+- Porta padrão (Docker): 8000
+- Endpoints principais:
+  - POST /webhook                 (entrada WhatsApp via provedor)
+  - POST /webhook/mercadopago     (confirmação de pagamento Mercado Pago)
+  - GET  /payments/qr/{payment_id}.png (gera QR PNG do Pix copia-e-cola)
+  - GET  /cron/avaliar            (job de avaliação pós-venda)
+  - GET  /cron/abandoned-carts    (lembrete/cancelamento carrinho abandonado)
+  - GET  /cron/reset-states       (reseta estados travados por inatividade)
+  - GET  /health                 (healthcheck)
+
+1.2 Dashboard (Streamlit)
+- Porta padrão (Docker): 8501
+- Funções:
+  - Login Admin (ADMIN_USER/ADMIN_PASS)
+  - Login restaurante via tabela `restaurantes` (usuario/senha)
+  - Gestão de cardápio, pedidos e configurações
+  - Configuração “Pix no WhatsApp” (Mercado Pago) por restaurante
+
+1.3 Banco (Supabase / Postgres)
+- Armazena restaurantes, produtos, pedidos, conversas, estados, entregas etc.
+- Função RPC para estoque: `movimentar_estoque_seguro`
+
+1.4 Redis (opcional, mas RECOMENDADO)
+Quando configurado, melhora MUITO robustez e custo:
+- buffer de mensagens + debounce
+- rate limit do webhook
+- deduplicação (idempotência)
+- locks distribuídos
+- cache de dados do restaurante
+
+============================================================
+2) Pré-requisitos (infra / ambiente)
+============================================================
+- Docker e Docker Compose (recomendado), ou Python 3.10+ para rodar local.
+- Uma URL pública HTTPS acessível pelo provedor (para /webhook e /webhook/mercadopago).
+  - DEV: ngrok/Cloudflare Tunnel
+  - PROD: domínio + reverse proxy (Nginx/Caddy) + TLS
+
+============================================================
+3) Variáveis de ambiente (.env)
+============================================================
+O projeto já usa `load_dotenv()` e o docker-compose aponta para `.env` na raiz.
+
+3.1 Modelo de .env (preencha com seus valores)
+
+# === Core ===
+SUPABASE_URL="https://SEU-PROJETO.supabase.co"
+SUPABASE_KEY="SUA_SERVICE_ROLE_OU_KEY_USADA_PELA_API"
+GROQ_API_KEY="SUA_GROQ_API_KEY"
+
+# Autenticação do webhook (entrada WhatsApp)
+WEBHOOK_SECRET="UM_SECRET_FORTE_PARA_O_WEBHOOK"
+
+# Base pública do seu backend (SEM barra no final)
+PUBLIC_BASE_URL="https://seu-dominio-ou-ngrok.app"
+
+# === Redis (recomendado) ===
+# Exemplo docker-compose (service redis): redis://redis:6379/0
+# Exemplo Redis Cloud: redis://default:SENHA@host:porta
+REDIS_URL="redis://..."
+
+# === Mercado Pago (Pix no WhatsApp) ===
+# Mesma chave no Backend e no Dashboard
+# Deve ser uma chave Fernet (base64 urlsafe, 32 bytes)
+CRED_ENCRYPTION_KEY="SUA_CHAVE_FERNET"
+
+# Token usado para validar chamadas no endpoint /webhook/mercadopago
+MP_WEBHOOK_TOKEN="UM_TOKEN_FORTE_PARA_WEBHOOK_MP"
+
+# === Cron/Jobs (protegidos) ===
+CRON_SECRET="UM_TOKEN_FORTE_PARA_CRON"
+
+# === Dashboard Admin ===
+ADMIN_USER="admin"
+ADMIN_PASS="senha_forte"
+
+# === TLS / rede ===
+# Em PRODUÇÃO deixe true.
+HTTP_VERIFY_TLS=true
+
+# === Limites/guardrails (opcional) ===
+WEBHOOK_RATE_LIMIT_PER_MIN=60
+MESSAGE_DEBOUNCE_SECONDS=5
+MAX_WEBHOOK_BODY_BYTES=262144
+MAX_INCOMING_TEXT_CHARS=4000
+MAX_BUFFER_TEXT_CHARS=8000
+MAX_QTD_ITEM=10
+
+# Carrinho abandonado / resets
+CART_ABANDONED_REMINDER_MIN=10
+CART_ABANDONED_CANCEL_MIN=15
+MAX_ABANDONED_SWEEP=200
+STATE_STALE_RESET_MIN=120
+MAX_STATE_RESET_SWEEP=500
+AVALIACAO_DELAY_MIN=30
+MAX_AVALIACAO_SWEEP=200
+
+# Uazapi (tuning de envio)
+UAZAPI_TIMEOUT=15
+UAZAPI_SEND_RETRIES=2
+
+# Self-test / heurísticas de número (opcional)
+ALLOW_SELF_TEST=0
+ENFORCE_COUNTRY_PREFIX=1
+
+# Logs
+LOG_LEVEL=INFO
+# LOG_DIR é configurado no docker-compose para /app/logs, mas pode ser setado manualmente
+LOG_DIR=./logs
+
+3.2 Observação importante sobre a key do Supabase
+- O projeto atual usa SUPABASE_KEY no Backend e no Dashboard.
+- Em produção multi-tenant, o ideal é:
+  - Dashboard com Supabase Auth + RLS
+  - Evitar service role no frontend
+
+============================================================
+4) Supabase — banco e schema
+============================================================
+4.1 Criar projeto
+- Crie um projeto no Supabase.
+- Copie:
+  - Project URL  -> SUPABASE_URL
+  - Key usada pela aplicação -> SUPABASE_KEY
+
+4.2 Criar tabelas e RPCs
+- Aplique os SQLs que existem no repositório:
+  - restaurantes_rows.sql
+  - supabase_payments.sql
+  - supabase_motoboys.sql
+  - supabase_entregas.sql
+
+- Confirme que existem (no mínimo) as tabelas:
+  - restaurantes
+  - produtos
+  - bairros
+  - pedidos
+  - conversas
+  - clientes_estado
+  - (opcionais conforme uso) motoboys, entregas
+
+- Confirme a função RPC:
+  - movimentar_estoque_seguro
+
+4.3 Campos importantes em `restaurantes`
+O backend e o dashboard esperam estes campos (entre outros):
+- id (numérico)
+- nome
+- phone_id (string, ex: "55...")
+- instance_name (string)
+- instance_token (token para enviar mensagem via Uazapi)
+- bot_ativo (bool)
+- system_prompt (texto)
+- taxa_entrega_padrao (numeric)
+
+Pagamentos:
+- pix_whatsapp_enabled (bool)
+- pix_provider (text; atual: "mercadopago")
+- mp_access_token_enc (text; access token do MP criptografado)
+
+============================================================
+5) Provedor WhatsApp (Uazapi) — envio e recebimento
+============================================================
+5.1 Envio (saída do bot)
+- A API envia mensagens usando:
+  - POST https://free.uazapi.com/send/text
+  - Header: token = restaurantes.instance_token
+
+Portanto, para cada restaurante, você precisa preencher no Supabase:
+- instance_name (para identificar no webhook de entrada)
+- instance_token (para enviar mensagens)
+- phone_id (número do restaurante, usado internamente como identificador)
+
+5.2 Recebimento (entrada no /webhook)
+- Você precisa configurar no provedor o webhook apontando para a sua API:
+
+  URL:  {PUBLIC_BASE_URL}/webhook?token={WEBHOOK_SECRET}
+
+- Alternativa de autenticação (se seu provedor permitir headers):
+  - Header: x-webhook-secret: {WEBHOOK_SECRET}
+
+Notas:
+- Se WEBHOOK_SECRET estiver vazio, o endpoint aceita sem autenticação (não recomendado).
+- Em DEV, use ngrok/tunnel para ter uma URL pública.
+
+============================================================
+6) Redis (recomendado)
+============================================================
+6.1 Por que usar
+Sem Redis, o bot funciona, mas perde:
+- rate limit e deduplicação multi-worker
+- buffer de mensagens com debounce mais robusto
+- locks distribuídos
+
+6.2 Opção A — Redis Cloud (recomendado em produção)
+- Pegue a URL no formato `redis://usuario:senha@host:porta` e coloque em REDIS_URL.
+
+6.3 Opção B — Redis local via Docker
+- Se quiser, adicione um service `redis` no docker-compose e use:
+  REDIS_URL=redis://redis:6379/0
+
+Exemplo de service (ajuste conforme necessário):
+- image: redis:7-alpine
+- ports: 6379:6379 (opcional)
+
+============================================================
+7) Cron / Jobs (essencial para rotinas)
+============================================================
+A API expõe endpoints que DEVEM ser chamados periodicamente.
+
+7.1 Autenticação do cron
+Os endpoints /cron/* são protegidos por CRON_SECRET via:
+- Query param: ?token=SEU_CRON_SECRET
+OU
+- Header: x-cron-secret: SEU_CRON_SECRET
+
+7.2 Endpoints de cron e sugestão de frequência
+- GET {PUBLIC_BASE_URL}/cron/abandoned-carts?token=CRON_SECRET
+  - Sugestão: a cada 2–5 min
+
+- GET {PUBLIC_BASE_URL}/cron/reset-states?token=CRON_SECRET
+  - Sugestão: a cada 10–30 min
+
+- GET {PUBLIC_BASE_URL}/cron/avaliar?token=CRON_SECRET
+  - Sugestão: a cada 10 min
+
+7.3 Onde agendar
+- cron-job.org (simples e rápido)
+- GitHub Actions schedule (se exposto publicamente)
+- Cloud Scheduler (GCP) / EventBridge (AWS) / etc.
+
+============================================================
+8) Mercado Pago (Pix no WhatsApp)
+============================================================
+8.1 Pré-requisitos
+- Conta Mercado Pago e credenciais (access token).
+- O sistema cria pagamentos Pix via API do Mercado Pago (v1/payments).
+
+8.2 Como o sistema está desenhado
+- O token do Mercado Pago é POR RESTAURANTE.
+- Ele é salvo no Supabase como `mp_access_token_enc` (criptografado).
+- A criptografia usa `CRED_ENCRYPTION_KEY` (Fernet) — precisa ser a mesma no Backend e no Dashboard.
+
+8.3 Configurar no Dashboard
+- No Dashboard, configure/habilite:
+  - pix_whatsapp_enabled = true
+  - mp_access_token (o dashboard criptografa e salva em mp_access_token_enc)
+
+8.4 Configurar webhook do Mercado Pago
+- Configure no painel do Mercado Pago a URL de notificação/webhook para:
+
+  {PUBLIC_BASE_URL}/webhook/mercadopago?token={MP_WEBHOOK_TOKEN}
+
+- Se MP_WEBHOOK_TOKEN estiver vazio, o endpoint aceita sem validação (não recomendado).
+
+8.5 Observações operacionais
+- O endpoint valida:
+  - amount vs total do pedido
+  - external_reference (usa o ID do pedido)
+- Quando status==approved:
+  - atualiza pedido para confirmado (se estava novo)
+  - envia mensagem ao cliente no WhatsApp
+
+============================================================
+9) Docker / execução
+============================================================
+9.1 Subir com Docker
+- Na raiz do projeto:
+  - docker compose up --build
+
+9.2 Portas
+- API: http://localhost:8000
+- Dashboard: http://localhost:8501
+
+9.3 Logs
+- O compose monta `./logs` no container em `/app/logs`.
+- Ajuste LOG_LEVEL e LOG_DIR se quiser.
+
+============================================================
+10) Checklist rápido (sanidade)
+============================================================
+- [ ] Supabase URL e Key configurados
+- [ ] Tabelas/SQL aplicados (incluindo RPC movimentar_estoque_seguro)
+- [ ] Existe pelo menos 1 restaurante com instance_name, instance_token, phone_id e bot_ativo=true
+- [ ] WEBHOOK_SECRET definido e webhook do provedor aponta para /webhook
+- [ ] PUBLIC_BASE_URL definido (URL pública HTTPS)
+- [ ] Redis configurado (REDIS_URL) — recomendado
+- [ ] CRON_SECRET definido e cron agendado para /cron/*
+- [ ] (Se usar Pix no WhatsApp) CRED_ENCRYPTION_KEY e MP_WEBHOOK_TOKEN definidos, e webhook do MP configurado
+- [ ] Dashboard acessível e ADMIN_USER/ADMIN_PASS definidos
+
+============================================================
+11) Notas de segurança (recomendado)
+============================================================
+- Em produção, mantenha HTTP_VERIFY_TLS=true.
+- Considere migrar Dashboard para Supabase Auth + RLS (ver SECURITY_NEXT_STEPS.md).
