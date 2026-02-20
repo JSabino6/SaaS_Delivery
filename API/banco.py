@@ -21,6 +21,8 @@ from utils import (
     SUPABASE_TIMEOUT_SECONDS,
     PUBLIC_BASE_URL,
     CRON_SECRET,
+    GROQ_API_KEY,
+    ALLOW_QUERY_TOKEN_AUTH,
     MP_WEBHOOK_TOKEN,
     CACHE_PREFIX,
     CACHE_INVALIDATE_TOKEN,
@@ -231,7 +233,9 @@ def carregar_cardapio_estruturado(restaurante_db_id):
         dict_precos = {}
         dict_estoque = {}
         dict_categorias = {}
+        dict_aliases = {}
         categorias = {}
+        produto_id_para_nome_norm = {}
 
         for p in produtos:
             estoque = p.get("estoque")
@@ -246,6 +250,10 @@ def carregar_cardapio_estruturado(restaurante_db_id):
             dict_precos[nome_norm] = preco
             dict_estoque[nome_norm] = estoque
             dict_categorias[nome_norm] = cat_norm
+            try:
+                produto_id_para_nome_norm[int(p.get("id") or 0)] = nome_norm
+            except Exception:
+                pass
 
             partes = p["nome"].split()
             if len(partes) > 1:
@@ -262,17 +270,39 @@ def carregar_cardapio_estruturado(restaurante_db_id):
             p_visual["nome_display"] = nome_visual
             categorias[cat].append(p_visual)
 
+        # Aliases opcionais por produto (melhora matching textual sem alterar nomes oficiais)
+        try:
+            if produto_id_para_nome_norm:
+                r_alias = (
+                    supabase.table("produtos_aliases")
+                    .select("produto_id,alias")
+                    .eq("restaurante_id", int(restaurante_db_id))
+                    .execute()
+                )
+                for row in (r_alias.data or []):
+                    try:
+                        pid = int((row or {}).get("produto_id") or 0)
+                    except Exception:
+                        pid = 0
+                    alias_raw = str((row or {}).get("alias") or "").strip()
+                    alias_norm = normalizar_texto(alias_raw)
+                    nome_norm = produto_id_para_nome_norm.get(pid)
+                    if alias_norm and nome_norm and alias_norm != nome_norm:
+                        dict_aliases[alias_norm] = nome_norm
+        except Exception:
+            dict_aliases = {}
+
         for cat, itens in categorias.items():
             texto_para_ia += f"\n--- {cat.upper()} ---\n"
             for item in itens:
                 desc = f" ({item['descricao']})" if item.get("descricao") else ""
                 texto_para_ia += f"- {item['nome_display']}{desc}: R$ {item['preco']:.2f}\n"
 
-        return texto_para_ia, dict_precos, dict_estoque, dict_categorias
+        return texto_para_ia, dict_precos, dict_estoque, dict_categorias, dict_aliases
 
     except Exception as e:
         print(f"❌ Erro ao carregar produtos: {e}")
-        return "", {}, {}, {}
+        return "", {}, {}, {}, {}
 
 
 def get_dados_restaurante(identificador, tipo="phone_id", force_refresh: bool = False):
@@ -291,17 +321,19 @@ def get_dados_restaurante(identificador, tipo="phone_id", force_refresh: bool = 
             dados = resp.data[0]
             restaurante_db_id = dados["id"]
 
-            txt_cardapio, dict_precos, dict_estoque, dict_categorias = carregar_cardapio_estruturado(restaurante_db_id)
+            txt_cardapio, dict_precos, dict_estoque, dict_categorias, dict_aliases = carregar_cardapio_estruturado(restaurante_db_id)
 
             if txt_cardapio:
                 dados["cardapio"] = txt_cardapio
                 dados["precos_dict"] = dict_precos
                 dados["estoque_dict"] = dict_estoque
                 dados["categorias_dict"] = dict_categorias
+                dados["produtos_aliases_dict"] = dict_aliases or {}
             else:
                 dados["precos_dict"] = extrair_precos_do_cardapio(dados.get("cardapio", ""))
                 dados["estoque_dict"] = {}
                 dados["categorias_dict"] = {}
+                dados["produtos_aliases_dict"] = {}
 
             taxas_dict = carregar_taxas_bairros(restaurante_db_id)
             if not taxas_dict:
@@ -513,47 +545,58 @@ def incrementar_metricas_restaurante(
             return True
 
         today = datetime.now(timezone.utc).date().isoformat()
-        resp = (
-            supabase.table("metricas_gastos_restaurante")
-            .select("*")
-            .eq("restaurante_id", rid)
-            .eq("periodo", today)
-            .limit(1)
-            .execute()
-        )
+        lock_key = f"lock:metricas:{rid}:{today}"
+        lock_token = ""
+        if redis_client:
+            lock_token = redis_acquire_lock(lock_key, ttl_seconds=10)
+            if not lock_token:
+                return False
 
-        if resp.data:
-            row = resp.data[0] or {}
-            payload = {
-                "pedidos_total": int(row.get("pedidos_total") or 0) + inc["pedidos_total"],
-                "ia_calls": int(row.get("ia_calls") or 0) + inc["ia_calls"],
-                "ia_prompt_tokens": int(row.get("ia_prompt_tokens") or 0) + inc["ia_prompt_tokens"],
-                "ia_completion_tokens": int(row.get("ia_completion_tokens") or 0) + inc["ia_completion_tokens"],
-                "ia_audio_calls": int(row.get("ia_audio_calls") or 0) + inc["ia_audio_calls"],
-                "redis_ops": int(row.get("redis_ops") or 0) + inc["redis_ops"],
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
-            (
+        try:
+            resp = (
                 supabase.table("metricas_gastos_restaurante")
-                .update(payload)
-                .eq("id", int(row.get("id") or 0))
+                .select("*")
+                .eq("restaurante_id", rid)
+                .eq("periodo", today)
+                .limit(1)
                 .execute()
             )
-            return True
 
-        payload = {
-            "restaurante_id": rid,
-            "periodo": today,
-            "pedidos_total": inc["pedidos_total"],
-            "ia_calls": inc["ia_calls"],
-            "ia_prompt_tokens": inc["ia_prompt_tokens"],
-            "ia_completion_tokens": inc["ia_completion_tokens"],
-            "ia_audio_calls": inc["ia_audio_calls"],
-            "redis_ops": inc["redis_ops"],
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        supabase.table("metricas_gastos_restaurante").insert(payload).execute()
-        return True
+            if resp.data:
+                row = resp.data[0] or {}
+                payload = {
+                    "pedidos_total": int(row.get("pedidos_total") or 0) + inc["pedidos_total"],
+                    "ia_calls": int(row.get("ia_calls") or 0) + inc["ia_calls"],
+                    "ia_prompt_tokens": int(row.get("ia_prompt_tokens") or 0) + inc["ia_prompt_tokens"],
+                    "ia_completion_tokens": int(row.get("ia_completion_tokens") or 0) + inc["ia_completion_tokens"],
+                    "ia_audio_calls": int(row.get("ia_audio_calls") or 0) + inc["ia_audio_calls"],
+                    "redis_ops": int(row.get("redis_ops") or 0) + inc["redis_ops"],
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                (
+                    supabase.table("metricas_gastos_restaurante")
+                    .update(payload)
+                    .eq("id", int(row.get("id") or 0))
+                    .execute()
+                )
+                return True
+
+            payload = {
+                "restaurante_id": rid,
+                "periodo": today,
+                "pedidos_total": inc["pedidos_total"],
+                "ia_calls": inc["ia_calls"],
+                "ia_prompt_tokens": inc["ia_prompt_tokens"],
+                "ia_completion_tokens": inc["ia_completion_tokens"],
+                "ia_audio_calls": inc["ia_audio_calls"],
+                "redis_ops": inc["redis_ops"],
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            supabase.table("metricas_gastos_restaurante").insert(payload).execute()
+            return True
+        finally:
+            if lock_token:
+                redis_release_lock(lock_key, lock_token)
     except Exception:
         return False
 
@@ -830,7 +873,11 @@ def _repeat_order_from_finalizado(restaurante_db_id: int, cliente_zap: str, pedi
 def _cron_authed(request: Request) -> bool:
     if not CRON_SECRET:
         return True
-    got = request.query_params.get("token") or request.headers.get("x-cron-secret")
+    got = (
+        request.headers.get("x-cron-secret")
+        or request.headers.get("x-cron-token")
+        or (request.query_params.get("token") if ALLOW_QUERY_TOKEN_AUTH else None)
+    )
     return bool(got and got == CRON_SECRET)
 
 
@@ -1092,10 +1139,10 @@ def _cache_invalidate_authed(request: Request) -> bool:
     if not CACHE_INVALIDATE_TOKEN:
         return False
     got = (
-        request.query_params.get("token")
-        or request.headers.get("x-cache-invalidate-token")
+        request.headers.get("x-cache-invalidate-token")
         or request.headers.get("x-cache-token")
         or request.headers.get("x-admin-token")
+        or (request.query_params.get("token") if ALLOW_QUERY_TOKEN_AUTH else None)
     )
     return bool(got and got == CACHE_INVALIDATE_TOKEN)
 
@@ -1433,4 +1480,25 @@ async def cron_avaliar(request: Request):
 
 
 def health_check():
-    return {"status": "ok"}
+    details = {
+        "supabase": {"status": "ok"},
+        "redis": {"status": "ok" if redis_client else "disabled"},
+        "groq": {"status": "configured" if GROQ_API_KEY else "not_configured"},
+    }
+
+    status = "ok"
+
+    try:
+        supabase.table("restaurantes").select("id").limit(1).execute()
+    except Exception as e:
+        details["supabase"] = {"status": "error", "detail": str(e)[:240]}
+        status = "degraded"
+
+    if redis_client:
+        try:
+            redis_client.ping()
+        except Exception as e:
+            details["redis"] = {"status": "error", "detail": str(e)[:240]}
+            status = "degraded"
+
+    return {"status": status, "dependencies": details}

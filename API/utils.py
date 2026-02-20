@@ -36,6 +36,7 @@ PUBLIC_BASE_URL = (os.getenv("PUBLIC_BASE_URL") or "").strip().rstrip("/")
 WEBHOOK_SECRET = (os.getenv("WEBHOOK_SECRET") or "").strip()
 CRON_SECRET = (os.getenv("CRON_SECRET") or "").strip()
 MP_WEBHOOK_TOKEN = (os.getenv("MP_WEBHOOK_TOKEN") or "").strip()
+ALLOW_QUERY_TOKEN_AUTH = (os.getenv("ALLOW_QUERY_TOKEN_AUTH", "0") or "0").strip().lower() in ("1", "true", "yes", "on")
 
 CACHE_PREFIX = (os.getenv("CACHE_PREFIX") or "saas").strip()
 CACHE_INVALIDATE_TOKEN = (os.getenv("CACHE_INVALIDATE_TOKEN") or "").strip()

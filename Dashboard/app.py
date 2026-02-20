@@ -174,6 +174,35 @@ def _generate_pin(length: int = 4) -> str:
     return "".join(secrets.choice(digits) for _ in range(length))
 
 
+def _normalize_product_text(raw: str) -> str:
+    txt = str(raw or "")
+    txt = txt.replace("\r", " ").replace("\n", " ").replace("\t", " ")
+    txt = re.sub(r"\s+", " ", txt).strip()
+    return txt
+
+
+def _normalize_name_key(raw: str) -> str:
+    txt = _normalize_product_text(raw).lower()
+    txt = re.sub(r"[^a-z0-9à-ÿ ]", "", txt)
+    txt = re.sub(r"\s+", " ", txt).strip()
+    return txt
+
+
+def _is_pizza_categoria(cat: str) -> bool:
+    c = _normalize_name_key(cat)
+    return "pizza" in c
+
+
+def _has_size_token(nome: str) -> bool:
+    n = _normalize_name_key(nome)
+    return bool(re.search(r"\b(pequena|media|média|grande|gigante|familia|família|brotinho|p|m|g)\b", n))
+
+
+def _has_volume_token(nome: str, descricao: str) -> bool:
+    txt = f"{_normalize_product_text(nome)} {_normalize_product_text(descricao)}".lower()
+    return bool(re.search(r"\b\d+(?:[\.,]\d+)?\s?(ml|l)\b", txt))
+
+
 @st.cache_data(ttl=120)
 def carregar_metricas_periodo(data_ini_iso: str, data_fim_iso: str):
     try:
@@ -1271,6 +1300,8 @@ def restaurant_page():
 
 
                         registros = []
+                        validation_errors = []
+                        nomes_seen = set()
 
                         next_id = None
                         try:
@@ -1281,6 +1312,44 @@ def restaurant_page():
                             next_id = None
                         
                         for index, row in edited_df.iterrows():
+                            linha = int(index) + 1
+                            nome_raw = _normalize_product_text(row.get('nome'))
+                            categoria_raw = _normalize_product_text(row.get('categoria'))
+                            descricao_raw = _normalize_product_text(row.get('descricao'))
+
+                            if not nome_raw:
+                                validation_errors.append(f"Linha {linha}: nome do item é obrigatório.")
+                                continue
+
+                            if not categoria_raw:
+                                validation_errors.append(f"Linha {linha}: categoria é obrigatória.")
+                                continue
+
+                            nome_key = _normalize_name_key(nome_raw)
+                            if nome_key in nomes_seen:
+                                validation_errors.append(f"Linha {linha}: item duplicado '{nome_raw}'.")
+                                continue
+                            nomes_seen.add(nome_key)
+
+                            try:
+                                preco_val = float(row.get('preco') or 0.0)
+                            except Exception:
+                                preco_val = 0.0
+                            if preco_val <= 0:
+                                validation_errors.append(f"Linha {linha}: preço inválido para '{nome_raw}'.")
+                                continue
+
+                            if _is_pizza_categoria(categoria_raw) and (not _has_size_token(nome_raw)):
+                                validation_errors.append(
+                                    f"Linha {linha}: pizza sem tamanho em '{nome_raw}'. Use Pequena/Média/Grande no nome."
+                                )
+                                continue
+
+                            if _normalize_name_key(categoria_raw) == "bebidas" and (not _has_volume_token(nome_raw, descricao_raw)):
+                                validation_errors.append(
+                                    f"Linha {linha}: bebida sem volume em '{nome_raw}'. Ex.: 350ml, 600ml, 1L, 2L."
+                                )
+                                continue
 
                             val_estoque = row['estoque']
                             
@@ -1293,10 +1362,10 @@ def restaurant_page():
 
                             item = {
                                 "restaurante_id": restaurante_db_id,
-                                "nome": row['nome'],
-                                "descricao": row['descricao'],
-                                "preco": float(row['preco']),
-                                "categoria": row['categoria'],
+                                "nome": nome_raw,
+                                "descricao": descricao_raw,
+                                "preco": float(preco_val),
+                                "categoria": categoria_raw,
                                 "estoque": estoque_final,
                                 "disponivel": bool(row['disponivel'])
                             }
@@ -1311,6 +1380,14 @@ def restaurant_page():
                                 next_id += 1
                                 
                             registros.append(item)
+
+                        if validation_errors:
+                            st.error("Não foi possível salvar. Corrija os itens abaixo:")
+                            for msg in validation_errors[:12]:
+                                st.write(f"- {msg}")
+                            if len(validation_errors) > 12:
+                                st.write(f"- ... e mais {len(validation_errors) - 12} erro(s)")
+                            return
 
                         if registros:
                             supabase.table("produtos").upsert(registros).execute()

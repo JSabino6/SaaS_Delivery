@@ -4874,13 +4874,32 @@ async def processar_mensagem_final(phone_id, cliente_zap, nome_cliente, texto_co
             if not query or not isinstance(precos_dict, dict) or not precos_dict:
                 return None, []
 
-            keys = [k for k in precos_dict.keys() if isinstance(k, str) and k.strip()]
+            aliases_dict = (dados_loja or {}).get("produtos_aliases_dict", {}) or {}
+
+            key_lookup = {}
+            for k in precos_dict.keys():
+                if not isinstance(k, str) or not k.strip():
+                    continue
+                nk = normalizar_texto(k)
+                if nk:
+                    key_lookup[nk] = k
+
+            for a, canon in (aliases_dict or {}).items():
+                na = normalizar_texto(a)
+                nc = normalizar_texto(canon)
+                if not na or not nc:
+                    continue
+                if nc in key_lookup:
+                    key_lookup[na] = key_lookup[nc]
+
+            keys = [k for k in key_lookup.keys() if isinstance(k, str) and k.strip()]
             if not keys:
                 return None, []
 
             q = normalizar_texto(query)
-            if q in keys:
-                return q, [q]
+            if q in key_lookup:
+                official = key_lookup.get(q)
+                return official, ([official] if official else [])
 
             # 1) close match
             close = difflib.get_close_matches(q, keys, n=5, cutoff=0.55)
@@ -4904,8 +4923,9 @@ async def processar_mensagem_final(phone_id, cliente_zap, nome_cliente, texto_co
             # merge suggestions, keep order, pick best
             suggestions = []
             for k0 in (close + [k for _, k in scored[:5]]):
-                if k0 and k0 not in suggestions:
-                    suggestions.append(k0)
+                official = key_lookup.get(k0, k0)
+                if official and official not in suggestions:
+                    suggestions.append(official)
             best = suggestions[0] if suggestions else None
             return best, suggestions[:5]
 
@@ -5782,6 +5802,7 @@ FORMATO JSON:
         nomes_oficiais = list(tabela_precos.keys())
         categorias_dict = dados_loja.get("categorias_dict", {}) or {}
         estoque_dict = (dados_loja or {}).get("estoque_dict", {}) or {}
+        aliases_dict = (dados_loja or {}).get("produtos_aliases_dict", {}) or {}
         avisos_validacao = []
         need_clarify_item = False
         pending_size_info: dict | None = None
@@ -5822,6 +5843,13 @@ FORMATO JSON:
             best_match = None
             best_score = 0.0
             for termo in _item_variants(nome):
+                canon_from_alias = normalizar_texto((aliases_dict or {}).get(termo) or "")
+                if canon_from_alias:
+                    if canon_from_alias in nomes_norm_map:
+                        return nomes_norm_map[canon_from_alias]
+                    if canon_from_alias in nomes_norm_list:
+                        return nomes_norm_map.get(canon_from_alias, canon_from_alias)
+
                 if termo in nomes_norm_map:
                     return nomes_norm_map[termo]
                 m = difflib.get_close_matches(termo, nomes_norm_list, n=1, cutoff=0.6)
