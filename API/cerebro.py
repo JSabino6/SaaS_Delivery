@@ -341,6 +341,99 @@ def _merge_slots_into_dados_parciais(dados_parciais: dict, slot_obj: dict | None
     return out
 
 
+def _validar_regras_excecao_carrinho(*, pedido_ativo: dict | None, dados_loja: dict | None) -> str | None:
+    carrinho = _safe_dict((pedido_ativo or {}).get("carrinho_json")) if isinstance(pedido_ativo, dict) else {}
+    if not carrinho:
+        return None
+
+    regras = (dados_loja or {}).get("regras_excecao_json") if isinstance(dados_loja, dict) else None
+    if isinstance(regras, str) and regras.strip():
+        try:
+            regras = json.loads(regras)
+        except Exception:
+            regras = None
+    if not isinstance(regras, dict):
+        return None
+
+    quentinha = regras.get("quentinha")
+    if not isinstance(quentinha, dict) or not bool(quentinha.get("ativa", False)):
+        return None
+
+    item_terms = quentinha.get("item_terms") or ["quentinha", "marmita"]
+    item_terms = [normalizar_texto(t) for t in item_terms if isinstance(t, str) and t.strip()]
+
+    misturas_validas = quentinha.get("misturas_validas") or []
+    misturas_validas = [normalizar_texto(m) for m in misturas_validas if isinstance(m, str) and m.strip()]
+
+    regras_tamanho = quentinha.get("regras_tamanho") or []
+    regras_ok = []
+    for r in regras_tamanho:
+        if not isinstance(r, dict):
+            continue
+        sts = [normalizar_texto(s) for s in (r.get("size_terms") or []) if isinstance(s, str) and s.strip()]
+        try:
+            rmin = int(r.get("min") or 0)
+        except Exception:
+            rmin = 0
+        try:
+            rmax = int(r.get("max") or 0)
+        except Exception:
+            rmax = 0
+        if sts:
+            regras_ok.append((sts, max(0, rmin), max(0, rmax)))
+
+    if not item_terms or not regras_ok:
+        return None
+
+    for chave, val in (carrinho or {}).items():
+        item_nome = str((val or {}).get("nome_exibicao") or chave or "").strip()
+        item_nome_norm = normalizar_texto(item_nome)
+        if not item_nome_norm:
+            continue
+        if not any(t in item_nome_norm for t in item_terms):
+            continue
+
+        regra_min = 0
+        regra_max = 0
+        matched_size = ""
+        for sts, rmin, rmax in regras_ok:
+            if any(st in item_nome_norm for st in sts):
+                regra_min = rmin
+                regra_max = rmax
+                matched_size = sts[0]
+                break
+        if regra_min <= 0 and regra_max <= 0:
+            continue
+
+        obs = str((val or {}).get("observacao") or "")
+        src = normalizar_texto(f"{item_nome} {obs}")
+        hits = []
+        for m in misturas_validas:
+            if m and m in src:
+                hits.append(m)
+        total_misturas = len(set(hits))
+
+        if regra_min and total_misturas < regra_min:
+            faltam = regra_min - total_misturas
+            sugestoes = ", ".join([s.title() for s in misturas_validas[:5]]) if misturas_validas else ""
+            base_msg = (
+                f"Para *{item_nome}* faltam *{faltam} mistura(s)* para finalizar. "
+                f"{('Tamanho: ' + matched_size + '. ') if matched_size else ''}"
+                "Me diga as misturas agora."
+            )
+            if sugestoes:
+                base_msg += f"\nOpções: {sugestoes}."
+            return base_msg
+
+        if regra_max and total_misturas > regra_max:
+            return (
+                f"Para *{item_nome}* você escolheu *{total_misturas} misturas*, "
+                f"mas o máximo permitido é *{regra_max}*. Pode ajustar?"
+            )
+
+    return None
+
+
 async def _slot_advance_checkout(
     *,
     phone_id,
@@ -351,6 +444,7 @@ async def _slot_advance_checkout(
     bairros_dict: dict,
     lista_bairros_txt: str,
     now_iso: str,
+    dados_loja: dict | None = None,
     taxa_unica_ativa: bool = False,
     taxa_padrao: float = 0.0,
 ) -> bool:
@@ -360,6 +454,12 @@ async def _slot_advance_checkout(
     if not carrinho_ok:
         await enviar_zap_async(phone_id, cliente_zap, "Seu carrinho está vazio. Me diga o que você quer pedir. 🙂")
         await sb_exec(lambda: set_estado(cliente_zap, phone_id, "INICIO", {}))
+        return True
+
+    msg_regra = _validar_regras_excecao_carrinho(pedido_ativo=pedido_ativo, dados_loja=dados_loja)
+    if msg_regra:
+        await sb_exec(lambda: set_estado(cliente_zap, phone_id, "AGUARDANDO_MAIS_ALGO", (dados_parciais or {})))
+        await enviar_zap_async(phone_id, cliente_zap, msg_regra)
         return True
 
     tipo_entrega = str((dados_parciais or {}).get("tipo_entrega") or "").strip().lower()
@@ -3916,6 +4016,7 @@ async def processar_mensagem_final(phone_id, cliente_zap, nome_cliente, texto_co
                     bairros_dict=bairros_dict or {},
                     lista_bairros_txt=lista_bairros_txt,
                     now_iso=now_iso,
+                    dados_loja=dados_loja,
                     taxa_unica_ativa=taxa_unica_ativa,
                     taxa_padrao=taxa_padrao,
                 )
@@ -5774,6 +5875,12 @@ FORMATO JSON:
             await enviar_zap_async(phone_id, cliente_zap, "Seu carrinho está vazio. Escolha algo do cardápio primeiro! 🍕")
             return
 
+        msg_regra = _validar_regras_excecao_carrinho(pedido_ativo=pedido_ativo, dados_loja=dados_loja)
+        if msg_regra:
+            await sb_exec(lambda: set_estado(cliente_zap, phone_id, "AGUARDANDO_MAIS_ALGO", (dados_parciais or {})))
+            await enviar_zap_async(phone_id, cliente_zap, msg_regra)
+            return
+
         await sb_exec(lambda: set_estado(cliente_zap, phone_id, "AGUARDANDO_ENDERECO"))
         resumo = pedido_ativo.get("resumo_pedido", "Carrinho vazio")
         try:
@@ -6027,6 +6134,30 @@ FORMATO JSON:
                     seen.add(nb)
                     uniq.append(b)
             borda_oficiais = uniq
+
+        borda_auto_ativa = bool((dados_loja or {}).get("borda_gratis_automatica_ativa", False))
+        borda_auto_nome = str((dados_loja or {}).get("borda_gratis_padrao_nome") or "").strip()
+
+        def _resolve_borda_auto_default(raw_name: str, options: list[str]) -> str | None:
+            if not options:
+                return None
+            rn = normalizar_texto(raw_name or "")
+            if rn:
+                for opt in options:
+                    if normalizar_texto(opt) == rn:
+                        return opt
+                for opt in options:
+                    on = normalizar_texto(opt)
+                    if rn in on or on in rn:
+                        return opt
+                close = difflib.get_close_matches(rn, [normalizar_texto(o) for o in options], n=1, cutoff=0.6)
+                if close:
+                    for opt in options:
+                        if normalizar_texto(opt) == close[0]:
+                            return opt
+            return options[0] if options else None
+
+        borda_auto_default = _resolve_borda_auto_default(borda_auto_nome, borda_oficiais)
 
         
 
@@ -6362,6 +6493,19 @@ FORMATO JSON:
                         borda_key = normalizar_texto(borda_disp)
                         if borda_key:
                             chave_item = f"{base_item_key}__borda_{borda_key}"
+                elif borda_auto_ativa and borda_auto_default and ("sem borda" not in borda_norm):
+                    borda_sabor = borda_auto_default
+                    borda_preco = 0.0
+                    borda_clean = re.sub(r"^borda\s*(de\s*)?", "", str(borda_sabor or ""), flags=re.IGNORECASE).strip()
+                    borda_disp = borda_clean or str(borda_sabor or "").strip()
+                    label = f"borda {borda_disp.title()} inclusa"
+                    obs_norm = normalizar_texto(obs_ia or "")
+                    if "borda" not in obs_norm:
+                        obs_ia = f"{obs_ia}; {label}".strip("; ") if obs_ia else label
+                    nome_exibicao = f"{nome_exibicao} (Borda {borda_disp.title()} Inclusa)" if nome_exibicao else f"{chave_item.title()} (Borda {borda_disp.title()} Inclusa)"
+                    borda_key = normalizar_texto(borda_disp)
+                    if borda_key:
+                        chave_item = f"{base_item_key}__borda_{borda_key}"
             existed_before = chave_item in carrinho_atual
             is_meio_a_meio = bool(componentes_meio) and str(chave_item).startswith("meio ")
 
@@ -6688,6 +6832,7 @@ FORMATO JSON:
                 bairros_dict=bairros_dict or {},
                 lista_bairros_txt=lista_bairros_txt,
                 now_iso=now_iso,
+                dados_loja=dados_loja,
                 taxa_unica_ativa=taxa_unica_ativa,
                 taxa_padrao=taxa_padrao,
             )

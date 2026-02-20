@@ -704,3 +704,4 @@ async def executar_ia_com_delay(buffer_key: str, cliente_zap: str, phone_id: str
                 await sb_exec(lambda: incrementar_metricas_restaurante(restaurante_db_id, redis_ops=redis_ops_count))
             except Exception:
                 pass
+#

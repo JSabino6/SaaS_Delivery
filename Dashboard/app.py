@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import sys
+import json
 from pathlib import Path
 import pandas as pd
 import altair as alt
@@ -1399,6 +1400,229 @@ def restaurant_page():
                     except Exception as e:
                         st.error(f"Erro ao salvar: {e}")
 
+        st.divider()
+        st.subheader("🧩 Aliases de Produtos")
+        st.caption("Aliases ajudam a IA a entender variações de escrita (ex.: marguerita → margherita, catupiri → catupiry).")
+
+        try:
+            produtos_base = (
+                supabase.table("produtos")
+                .select("id,nome")
+                .eq("restaurante_id", restaurante_db_id)
+                .order("nome")
+                .execute()
+                .data
+                or []
+            )
+            aliases_rows = (
+                supabase.table("produtos_aliases")
+                .select("id,produto_id,alias")
+                .eq("restaurante_id", restaurante_db_id)
+                .order("alias")
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            st.warning("Tabela `produtos_aliases` não encontrada. Rode o SQL `supabase_produtos_estrutura.sql`.")
+            aliases_rows = []
+            produtos_base = []
+
+        produtos_map = {int(p.get("id")): str(p.get("nome") or "") for p in produtos_base if p.get("id") is not None}
+        nomes_produtos = sorted([n for n in produtos_map.values() if n])
+        nome_para_id = {v: k for k, v in produtos_map.items()}
+
+        aliases_view = []
+        for r in aliases_rows:
+            try:
+                pid = int(r.get("produto_id") or 0)
+            except Exception:
+                pid = 0
+            aliases_view.append({
+                "id": r.get("id"),
+                "produto": produtos_map.get(pid, ""),
+                "alias": str(r.get("alias") or ""),
+            })
+
+        if not aliases_view:
+            aliases_view = [{"id": None, "produto": "", "alias": ""}]
+
+        df_aliases = pd.DataFrame(aliases_view)
+        edited_aliases = st.data_editor(
+            df_aliases,
+            key="editor_produtos_aliases",
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "id": None,
+                "produto": st.column_config.SelectboxColumn("Produto", options=nomes_produtos, required=True),
+                "alias": st.column_config.TextColumn("Alias", required=True),
+            },
+        )
+
+        def _alias_candidates_for_product(prod_name: str) -> list[str]:
+            raw = _normalize_product_text(prod_name).lower()
+            if not raw:
+                return []
+
+            def _clean(s: str) -> str:
+                s = s.lower()
+                s = s.replace("-", " ")
+                s = re.sub(r"\s+", " ", s).strip()
+                return s
+
+            out = set()
+            out.add(_clean(raw))
+
+            # Ortografia/variações comuns
+            swaps = [
+                ("catupiry", "catupiri"),
+                ("margherita", "marguerita"),
+                ("mussarela", "muçarela"),
+                ("coca cola", "coca-cola"),
+            ]
+            for a, b in swaps:
+                if a in raw:
+                    out.add(_clean(raw.replace(a, b)))
+                if b in raw:
+                    out.add(_clean(raw.replace(b, a)))
+
+            # Atalhos para marcas/bebidas comuns
+            if "coca cola" in raw or "coca-cola" in raw:
+                out.add("coca")
+            if "guarana antarctica" in raw or "guaraná antarctica" in raw:
+                out.add("guarana")
+
+            # Remover termos de embalagem/retornável mantendo volume
+            stripped = re.sub(r"\b(pet|vidro|retornavel|retornável|garrafa|lata)\b", " ", raw)
+            stripped = _clean(stripped)
+            if stripped:
+                out.add(stripped)
+
+            # Nunca sugerir alias vazio/igual ao nome canônico normalizado
+            canon_key = _normalize_name_key(prod_name)
+            final = []
+            for a in out:
+                a = _normalize_product_text(a)
+                if not a:
+                    continue
+                if _normalize_name_key(a) == canon_key:
+                    continue
+                final.append(a)
+            return sorted(set(final))
+
+        if st.button("✨ Gerar aliases automáticos", use_container_width=True):
+            try:
+                if not produtos_base:
+                    st.warning("Sem produtos cadastrados para gerar aliases.")
+                else:
+                    alias_keys_exist = {
+                        _normalize_name_key(str(r.get("alias") or ""))
+                        for r in aliases_rows
+                        if str(r.get("alias") or "").strip()
+                    }
+
+                    payload_auto = []
+                    inserted = 0
+
+                    for p in produtos_base:
+                        try:
+                            produto_id = int(p.get("id") or 0)
+                        except Exception:
+                            produto_id = 0
+                        nome_prod = _normalize_product_text(p.get("nome"))
+                        if not produto_id or not nome_prod:
+                            continue
+
+                        for alias_sug in _alias_candidates_for_product(nome_prod):
+                            k = _normalize_name_key(alias_sug)
+                            if not k or k in alias_keys_exist:
+                                continue
+                            alias_keys_exist.add(k)
+                            payload_auto.append({
+                                "restaurante_id": restaurante_db_id,
+                                "produto_id": produto_id,
+                                "alias": alias_sug,
+                            })
+
+                    if payload_auto:
+                        supabase.table("produtos_aliases").upsert(payload_auto).execute()
+                        inserted = len(payload_auto)
+
+                    invalidate_api_cache(phone_id, dados.get("instance_name"))
+                    st.success(f"✅ Aliases automáticos gerados: {inserted}")
+                    time.sleep(0.4)
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao gerar aliases automáticos: {e}")
+
+        if st.button("💾 Salvar Aliases", use_container_width=True):
+            try:
+                ids_originais = set(int(r.get("id")) for r in aliases_rows if r.get("id") is not None)
+                ids_finais = set(
+                    int(row.get("id"))
+                    for _, row in edited_aliases.iterrows()
+                    if pd.notna(row.get("id")) and str(row.get("id")).strip()
+                )
+                ids_para_deletar = ids_originais - ids_finais
+                if ids_para_deletar:
+                    supabase.table("produtos_aliases").delete().in_("id", list(ids_para_deletar)).execute()
+
+                payload = []
+                erros = []
+                aliases_seen = set()
+
+                for idx, row in edited_aliases.iterrows():
+                    linha = int(idx) + 1
+                    produto_nome = _normalize_product_text(row.get("produto"))
+                    alias_raw = _normalize_product_text(row.get("alias"))
+
+                    if not produto_nome and not alias_raw:
+                        continue
+                    if not produto_nome:
+                        erros.append(f"Linha {linha}: selecione um produto.")
+                        continue
+                    if not alias_raw:
+                        erros.append(f"Linha {linha}: alias é obrigatório.")
+                        continue
+
+                    produto_id = nome_para_id.get(produto_nome)
+                    if not produto_id:
+                        erros.append(f"Linha {linha}: produto inválido ('{produto_nome}').")
+                        continue
+
+                    alias_key = _normalize_name_key(alias_raw)
+                    if alias_key in aliases_seen:
+                        erros.append(f"Linha {linha}: alias duplicado ('{alias_raw}').")
+                        continue
+                    aliases_seen.add(alias_key)
+
+                    item = {
+                        "restaurante_id": restaurante_db_id,
+                        "produto_id": int(produto_id),
+                        "alias": alias_raw,
+                    }
+                    if pd.notna(row.get("id")) and str(row.get("id")).strip():
+                        item["id"] = int(row.get("id"))
+                    payload.append(item)
+
+                if erros:
+                    st.error("Não foi possível salvar aliases. Corrija:")
+                    for msg in erros[:12]:
+                        st.write(f"- {msg}")
+                    if len(erros) > 12:
+                        st.write(f"- ... e mais {len(erros) - 12} erro(s)")
+                else:
+                    if payload:
+                        supabase.table("produtos_aliases").upsert(payload).execute()
+                    invalidate_api_cache(phone_id, dados.get("instance_name"))
+                    st.success("✅ Aliases salvos com sucesso!")
+                    time.sleep(0.5)
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao salvar aliases: {e}")
+
 
     elif aba == "Motoboys":
         st.header("🛵 Motoboys")
@@ -1879,6 +2103,42 @@ def restaurant_page():
         with c1:
             prompt = st.text_area("Personalidade da IA", value=dados.get("system_prompt", ""), height=150)
 
+            regras_default = {
+                "quentinha": {
+                    "ativa": False,
+                    "item_terms": ["quentinha", "marmita"],
+                    "misturas_validas": [
+                        "carne cozida",
+                        "file de frango empanado",
+                        "linguica toscana",
+                        "panqueca de frango",
+                        "bife acebolado",
+                    ],
+                    "regras_tamanho": [
+                        {"size_terms": ["pequena", "p"], "min": 1, "max": 1},
+                        {"size_terms": ["media", "m"], "min": 1, "max": 1},
+                        {"size_terms": ["grande", "g"], "min": 2, "max": 2},
+                    ],
+                }
+            }
+
+            regras_saved = dados.get("regras_excecao_json")
+            if isinstance(regras_saved, dict):
+                regras_txt_default = json.dumps(regras_saved, ensure_ascii=False, indent=2)
+            elif isinstance(regras_saved, str) and regras_saved.strip():
+                regras_txt_default = regras_saved
+            else:
+                regras_txt_default = json.dumps(regras_default, ensure_ascii=False, indent=2)
+
+            with st.expander("⚙️ Regras de Exceção (JSON)"):
+                st.caption("Use para validar regras de negócio por restaurante (ex.: quentinha grande exige 2 misturas).")
+                regras_excecao_txt = st.text_area(
+                    "Regras de Exceção",
+                    value=regras_txt_default,
+                    height=240,
+                    help="Formato JSON. Deixe vazio para desativar regras estruturadas.",
+                )
+
             st.subheader("📌 Informações da Loja")
             endereco_loja = st.text_area("Endereço da Loja", value=dados.get("endereco_loja", ""), height=80)
             telefone_loja = st.text_input("Telefone da Loja", value=dados.get("telefone_loja", ""))
@@ -1893,15 +2153,74 @@ def restaurant_page():
                 help="Quando ativo, a taxa padrão é aplicada para todos os pedidos e o bairro deixa de ser obrigatório.",
             )
             st.caption("Quando ativo, usa a taxa padrão para todos os bairros.")
+
+            st.subheader("🧀 Borda na Pizza")
+            borda_gratis_automatica_ativa = st.toggle(
+                "Borda grátis automática",
+                value=bool(dados.get("borda_gratis_automatica_ativa", False)),
+                help="Quando ativo, toda pizza recebe automaticamente a borda padrão sem cobrar adicional (exceto se cliente pedir sem borda).",
+            )
+
+            borda_options = []
+            try:
+                borda_rows = (
+                    supabase.table("produtos")
+                    .select("nome,categoria")
+                    .eq("restaurante_id", restaurante_db_id)
+                    .eq("disponivel", True)
+                    .order("nome")
+                    .execute()
+                    .data
+                    or []
+                )
+                for r in borda_rows:
+                    n = _normalize_product_text(r.get("nome"))
+                    c = _normalize_name_key(r.get("categoria"))
+                    if n and ("borda" in c or "borda" in _normalize_name_key(n)):
+                        borda_options.append(n)
+            except Exception:
+                borda_options = []
+
+            borda_options = sorted(set(borda_options))
+            borda_saved = _normalize_product_text(dados.get("borda_gratis_padrao_nome"))
+            if borda_saved and borda_saved not in borda_options:
+                borda_options.insert(0, borda_saved)
+
+            if borda_options:
+                borda_gratis_padrao_nome = st.selectbox(
+                    "Borda padrão (grátis)",
+                    options=borda_options,
+                    index=(borda_options.index(borda_saved) if borda_saved in borda_options else 0),
+                )
+            else:
+                borda_gratis_padrao_nome = ""
+                if borda_gratis_automatica_ativa:
+                    st.warning("Não há bordas ativas no cardápio para aplicar automaticamente.")
         
         bot_ativo = st.toggle("🤖 Bot Ligado", value=dados.get("bot_ativo", True))
         msg_fechado = st.text_input("Mensagem de Fechado", value=dados.get("mensagem_fechado", "Estamos fechados no momento."))
 
         if st.button("💾 Salvar Configurações Gerais"):
+            regras_excecao_obj = None
+            try:
+                txt = str(regras_excecao_txt or "").strip()
+                if txt:
+                    parsed = json.loads(txt)
+                    if not isinstance(parsed, dict):
+                        st.error("`Regras de Exceção` deve ser um objeto JSON (chave/valor).")
+                        return
+                    regras_excecao_obj = parsed
+            except Exception as e:
+                st.error(f"JSON inválido em Regras de Exceção: {e}")
+                return
+
             supabase.table("restaurantes").update({
                 "system_prompt": prompt,
+                "regras_excecao_json": regras_excecao_obj,
                 "taxa_entrega_padrao": taxa_padrao,
                 "taxa_unica_ativa": bool(taxa_unica_ativa),
+                "borda_gratis_automatica_ativa": bool(borda_gratis_automatica_ativa),
+                "borda_gratis_padrao_nome": (borda_gratis_padrao_nome or None),
                 "bot_ativo": bot_ativo,
                 "mensagem_fechado": msg_fechado,
                 "endereco_loja": endereco_loja,
@@ -1911,8 +2230,11 @@ def restaurant_page():
 
 
             dados["system_prompt"] = prompt
+            dados["regras_excecao_json"] = regras_excecao_obj
             dados["taxa_entrega_padrao"] = taxa_padrao
             dados["taxa_unica_ativa"] = bool(taxa_unica_ativa)
+            dados["borda_gratis_automatica_ativa"] = bool(borda_gratis_automatica_ativa)
+            dados["borda_gratis_padrao_nome"] = (borda_gratis_padrao_nome or "")
             dados["bot_ativo"] = bot_ativo
             dados["mensagem_fechado"] = msg_fechado
             dados["endereco_loja"] = endereco_loja
