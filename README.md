@@ -2,20 +2,20 @@
 Um sistema completo de Software as a Service (SaaS) focado em automatizar o atendimento via WhatsApp para pizzarias e hamburguerias. O sistema utiliza Inteligência Artificial para interpretar áudios confusos, mensagens picotadas e mudanças de ideia do cliente, transformando tudo em um pedido estruturado (JSON) que cai direto em um painel Kanban na cozinha.
 
 🚀 O Problema que Resolvemos
-Restaurantes perdem vendas nos horários de pico (sextas e sábados) porque os atendentes humanos não conseguem responder múltiplos clientes ao mesmo tempo. Sistemas tradicionais de bot (com botões "Digite 1 para Pizza") são frustrantes. Nosso sistema oferece um atendimento conversacional, humanizado e à prova de alucinações, lidando com cardápios dinâmicos e regras matemáticas complexas.
+Restaurantes perdem vendas nos horários de pico (sextas e sábados) porque os atendentes humanos não conseguem responder múltiplos clientes ao mesmo tempo. Sistemas tradicionais de bot (com botões "Digite 1 para Pizza") são frustrantes. O sistema oferece um atendimento conversacional, humanizado e à prova de alucinações, lidando com cardápios dinâmicos e regras matemáticas complexas.
 
 🛠️ Stack Tecnológica
 A arquitetura foi desenhada para ter custo operacional baixíssimo e altíssima escalabilidade.
 
 Backend: Python 3 (FastAPI)
 
-Frontend (Painel Kanban): Streamlit
+Frontend (Painel Kanban): Streamlit 
 
 Banco de Dados: Supabase (PostgreSQL)
 
 Cache & Fila: Redis (Upstash)
 
-Inteligência Artificial: Llama 3 70B via Groq API (ou GPT-4o-mini da OpenAI)
+Inteligência Artificial: Llama 3 70B via Groq API (ou GPT-4o-mini da OpenAI) e Modelo Groq Whisper 
 
 Integração WhatsApp: UAZAPI (Webhook)
 
@@ -90,9 +90,9 @@ Basta rodar o comando abaixo para subir o Backend (FastAPI), Frontend (Streamlit
 
 Bash
 docker-compose up --build -d
-API FastAPI: http://localhost:8000
+API FastAPI: ----
 
-Painel Streamlit: http://localhost:8501
+Painel Streamlit: ----
 
 🔒 Regras de Segurança e Proteção
 Matemática Burra na IA: A IA nunca calcula o valor final do pedido. Ela apenas extrai os itens. O banco.py puxa os preços oficiais do Supabase e faz a soma, garantindo zero prejuízo por alucinação.
@@ -106,4 +106,3 @@ Isolamento de Dados: Cada restaurante_id possui seus próprios fluxos de caixa e
 
 [ ] Refatoração do Frontend (app.py) de Streamlit para React / Next.js para suportar centenas de weblogs simultâneos na cozinha sem sobrecarregar o servidor.
 
-[ ] Integração nativa com APIs de pagamento (Mercado Pago / Asaas) para geração de PIX Copia e Cola automático.
