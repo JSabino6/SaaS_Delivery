@@ -19,8 +19,6 @@ Inteligência Artificial: Llama 3 70B via Groq API (ou GPT-4o-mini da OpenAI) e 
 
 Integração WhatsApp: UAZAPI (Webhook)
 
-Geocodificação: Google Maps API / Nominatim OpenStreetMap
-
 Tarefas Agendadas (Crons): Cron-job.org
 
 Infraestrutura: Docker & Docker Compose (Hetzner/VPS)
