@@ -1,10 +1,10 @@
 # AI Atendimento
 
-<<<<<<< HEAD
-=======
 Este projeto nasceu da necessidade de automatizar o atendimento em pizzarias locais, solucionando dores reais do comércio. O desenvolvimento uniu tecnologias que eu já dominava a novas stacks que integrei durante meus estudos. Atualmente, o fluxo principal de atendimento está estável e funcional. O projeto encontra-se em fase de lapidação em ambiente local, com foco total no refinamento da arquitetura multi-tenant.
 
 >>>>>>> cbb02c39c9b6974d5c7bc8f1492bd7869b69b790
+Projeto com dois componentes principais:
+Este projeto nasceu da necessidade de automatizar o atendimento em pizzarias locais, solucionando dores reais do comércio. O desenvolvimento uniu tecnologias que eu já dominava a novas stacks que integrei durante meus estudos. Atualmente, o fluxo principal de atendimento está estável e funcional. O projeto encontra-se em fase de lapidação em ambiente local, com foco total no refinamento da arquitetura multi-tenant.
 Projeto com dois componentes principais:
 
 - **API**: backend (FastAPI) responsável por receber webhooks do WhatsApp/provider, orquestrar atendimento via IA, gerenciar carrinho/pedidos no Supabase, estoque e rotinas (cron).
@@ -32,7 +32,12 @@ Projeto com dois componentes principais:
 
 ---
 
-<<<<<<< HEAD
+## Migrações (Supabase)
+
+Algumas features recentes usam colunas adicionais na tabela `pedidos` (ex.: trava de aceite até o bot finalizar, badge de abandono e sinalização de atendimento humano).
+
+
+
 ## Migrações (Supabase)
 
 Algumas features recentes usam colunas adicionais na tabela `pedidos` (ex.: trava de aceite até o bot finalizar, badge de abandono e sinalização de atendimento humano).
@@ -41,9 +46,6 @@ Algumas features recentes usam colunas adicionais na tabela `pedidos` (ex.: trav
 - É seguro rodar mais de uma vez (`if not exists`).
 
 ---
-
-=======
->>>>>>> cbb02c39c9b6974d5c7bc8f1492bd7869b69b790
 ## Configuração (.env)
 
 A API lê variáveis via `.env` (ex.: `API/.env`) ou variáveis de ambiente do deploy.
@@ -80,11 +82,7 @@ HTTP/TLS:
 - `HTTP_VERIFY_TLS` (default true; em DEV pode setar `false`)
 
 Integração WhatsApp/provedor:
-<<<<<<< HEAD
 - `UAZAPI_BASE_URL` (no código está fixo como `https://free.uazapi.com`)
-=======
-- `UAZAPI_BASE_URL` ( `https://free.uazapi.com`)
->>>>>>> cbb02c39c9b6974d5c7bc8f1492bd7869b69b790
 - `UAZAPI_TIMEOUT` (default 15)
 - `UAZAPI_SEND_RETRIES` (default 2)
 
