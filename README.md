@@ -68,98 +68,129 @@ Segurança/segredos:
 Tuning/limites (defaults no código):
 - `MAX_WEBHOOK_BODY_BYTES` (default 262144)
 - `MAX_INCOMING_TEXT_CHARS` (default 4000)
-- `MAX_BUFFER_TEXT_CHARS` (default 8000)
-- `MAX_QTD_ITEM` (default 10)
-- `WEBHOOK_RATE_LIMIT_PER_MIN` (default 60)
-- `MESSAGE_DEBOUNCE_SECONDS` (default 5)
-- `CART_ABANDONED_REMINDER_MIN` (default 10)
-- `CART_ABANDONED_CANCEL_MIN` (default 15)
-- `STATE_STALE_RESET_MIN` (default 120)
-- `REPEAT_ORDER_LOOKBACK_DAYS` (default 30)
-- `AVALIACAO_DELAY_MIN` (default 30)
 
-HTTP/TLS:
-- `HTTP_VERIFY_TLS` (default true; em DEV pode setar `false`)
+# AI Atendimento SaaS
 
-Integração WhatsApp/provedor:
-- `UAZAPI_BASE_URL` (no código está fixo como `https://free.uazapi.com`)
-- `UAZAPI_TIMEOUT` (default 15)
-- `UAZAPI_SEND_RETRIES` (default 2)
+Projeto completo para automatizar pedidos de restaurantes, pizzarias e marmitarias via WhatsApp, com painel de gestão intuitivo, regras flexíveis de cardápio, gestão de motoboys e integração Pix. Ideal para portfólio, pensado para operação real e fácil adaptação.
 
 ---
 
-## Como rodar (API)
+## Visão Geral
 
-A partir da pasta `API/`:
+O sistema conecta clientes ao restaurante pelo WhatsApp, reconhece pedidos automaticamente, aplica regras de mistura (quentinha, pizza, combos), permite editar produtos e aliases, e gerencia motoboys e entregas. Tudo é configurável pelo painel, sem necessidade de mexer no código.
 
-1. Criar e ativar um venv
-2. Instalar dependências
-3. Subir o servidor
-
-Exemplo (PowerShell):
-
-- Criar venv:
-  - `python -m venv .venv`
-  - `.\.venv\Scripts\Activate.ps1`
-
-- Instalar:
-  - `pip install -r requirements.txt`
-
-- Rodar:
-  - `uvicorn main:app --host 0.0.0.0 --port 8000 --reload`
-
-Docs:
-- `http://localhost:8000/docs`
-- `http://localhost:8000/health`
+**Principais recursos:**
+- Atendimento automatizado via WhatsApp (Uazapi)
+- Integração Mercado Pago (Pix)
+- Painel de gestão (Streamlit)
+- Cadastro e edição de produtos, aliases, regras de exceção (JSON)
+- Borda grátis configurável para pizzarias
+- Validação de regras de mistura (quentinha, pizza, combos)
+- Gestão de motoboys e entregas
+- Cache e logs para performance
+- Multi-restaurante (cada restaurante tem suas configurações)
 
 ---
 
-## Endpoints principais (API)
+## Arquitetura
 
-- `GET /health`
-  - Health check simples
+**Frontend:**
+- Dashboard (Streamlit/app.py): painel para gestão de cardápio, produtos, aliases, regras, motoboys, configurações e métricas.
 
-- `POST /webhook`
-  - Webhook de entrada do provedor/WhatsApp
-  - Faz agregação de mensagens (buffer + debounce) e processa o fluxo do atendimento
-
-- `POST /webhook/mercadopago`
-  - Webhook de pagamento Pix (Mercado Pago)
-  - Recomenda-se proteger com `MP_WEBHOOK_TOKEN`
-
-- `GET /payments/qr/{payment_id}.png`
-  - Gera PNG do QR Code (Pix copia-e-cola) associado ao `payment_id`
-
-Rotinas (cron) protegidas por `CRON_SECRET`:
-- `GET /cron/abandoned-carts`
-  - Lembrete/cancelamento de carrinho abandonado + devolução de estoque (idempotente com Redis)
-- `GET /cron/reset-states`
-  - Reseta estados travados por inatividade (volta para `INICIO`)
-- `GET /cron/avaliar`
-  - Envia avaliação pós-venda (1..5) após X minutos do pedido finalizado
+**Backend:**
+- API (FastAPI): webhooks, validação de pedidos, integração Pix, regras de exceção, cache, logs.
+- Banco de dados (Supabase/Postgres): restaurantes, produtos, pedidos, aliases, regras, motoboys.
+- Redis (opcional): rate-limit, buffer, locks.
 
 ---
 
-## Notas operacionais
+## Fluxo Operacional
 
-- Redis é recomendado para:
-  - deduplicar eventos do webhook
-  - controlar rate-limit por conversa
-  - lock distribuído (evitar dupla devolução de estoque em múltiplos workers)
-  - buffer de mensagens por conversa
-
-- Supabase:
-  - O backend assume tabelas e colunas usadas no código (ex.: `pix_whatsapp_enabled`, `mp_access_token_enc`, `taxa_entrega_padrao`, etc).
-  - A atualização de estoque usa RPC `movimentar_estoque_seguro`.
+1. Cliente envia mensagem no WhatsApp.
+2. API recebe via webhook, valida cardápio, aplica aliases e regras.
+3. Painel permite editar produtos, aliases, regras de exceção (JSON), borda grátis, motoboys.
+4. Pedido é processado, Pix gerado, status atualizado.
+5. Motoboy recebe entrega, painel mostra métricas e histórico.
 
 ---
 
-## Dashboard
+## Diferenciais
 
-O `Dashboard/` é o módulo de administração do projeto. Em geral ele:
-- cadastra restaurantes/instâncias (ex.: `phone_id`, `instance_name`, `instance_token`)
-- gerencia produtos/estoque/categorias
-- gerencia bairros e taxas de entrega
-- configura prompts e flags do bot (ex.: `bot_ativo`, Pix, etc)
+- Regras de exceção estruturadas (JSON) para validar misturas, limites, combos.
+- Aliases automáticos e editáveis para produtos (facilita reconhecimento de pedidos).
+- Borda grátis configurável (backend e painel).
+- Multi-tenant: cada restaurante tem seu cardápio, regras e configurações.
+- Painel intuitivo para não técnicos.
+- Logs detalhados e cache para performance.
 
-Para detalhes de build/run do Dashboard, consulte a documentação do próprio `Dashboard/` (package manager, scripts e variáveis do frontend).
+---
+
+## Tecnologias
+
+- FastAPI (backend)
+- Streamlit (dashboard)
+- Supabase/Postgres (banco de dados)
+- Redis (opcional)
+- Mercado Pago (Pix)
+- Uazapi (WhatsApp)
+
+---
+
+## Estrutura do Projeto
+
+```
+API/
+  main.py           # FastAPI endpoints
+  cerebro.py        # Lógica de validação, aliases, regras, borda
+  banco.py          # Supabase/Postgres, Pix, cache
+  zap.py            # Webhook WhatsApp, envio de mensagens
+  health_startup.py # Diagnóstico inicial
+  requirements.txt  # Dependências backend
+Dashboard/
+  app.py            # Streamlit dashboard (frontend)
+  requirements.txt  # Dependências frontend
+logs/               # Logs de API e dashboard
+```
+
+---
+
+## Configuração e Uso
+
+1. Configure o .env com as chaves do Supabase, Mercado Pago, Uazapi, etc.
+2. Rode o backend (FastAPI) e o frontend (Streamlit).
+3. Acesse o painel para cadastrar produtos, aliases, regras, motoboys.
+4. O bot já reconhece aliases, aplica borda grátis (se configurado), valida regras de mistura.
+5. Pedidos são processados automaticamente, Pix gerado, motoboy recebe entrega.
+
+---
+
+## Exemplo de Regra de Exceção (JSON)
+
+```json
+{
+  "quentinha": {
+    "max_misturas": 2,
+    "permitidos": ["carne", "frango", "peixe", "ovo"]
+  },
+  "pizza": {
+    "borda_gratis": true,
+    "sabores_max": 2
+  }
+}
+```
+
+---
+
+## Observações
+
+- O painel permite editar todas as regras e aliases sem necessidade de código.
+- O backend valida tudo antes de fechar o pedido, evitando erros.
+- Logs e cache garantem performance e rastreabilidade.
+
+---
+
+## Portfolio
+
+Projeto pensado para ser flexível, robusto e fácil de operar, ideal para restaurantes que querem automatizar pedidos sem complicação. O código está organizado, documentado e pronto para ser usado ou adaptado.
+
+Qualquer dúvida ou sugestão, entre em contato!
