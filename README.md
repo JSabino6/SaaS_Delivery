@@ -1,212 +1,109 @@
-# AI Atendimento SaaS
+🍕 AI Delivery SaaS (Assistente Virtual para Restaurantes)
+Um sistema completo de Software as a Service (SaaS) focado em automatizar o atendimento via WhatsApp para pizzarias e hamburguerias. O sistema utiliza Inteligência Artificial para interpretar áudios confusos, mensagens picotadas e mudanças de ideia do cliente, transformando tudo em um pedido estruturado (JSON) que cai direto em um painel Kanban na cozinha.
 
-Automatize pedidos e atendimento para restaurantes, pizzarias e marmitarias via WhatsApp, com painel de gestão intuitivo, regras flexíveis de cardápio, gestão de motoboys e integração Pix. Projeto robusto, multi-tenant, ideal para uso real.
+🚀 O Problema que Resolvemos
+Restaurantes perdem vendas nos horários de pico (sextas e sábados) porque os atendentes humanos não conseguem responder múltiplos clientes ao mesmo tempo. Sistemas tradicionais de bot (com botões "Digite 1 para Pizza") são frustrantes. Nosso sistema oferece um atendimento conversacional, humanizado e à prova de alucinações, lidando com cardápios dinâmicos e regras matemáticas complexas.
 
----
+🛠️ Stack Tecnológica
+A arquitetura foi desenhada para ter custo operacional baixíssimo e altíssima escalabilidade.
 
-**Componentes principais:**
+Backend: Python 3 (FastAPI)
 
-- **API**: Backend em FastAPI. Recebe webhooks do WhatsApp, processa pedidos, valida regras, integra com Supabase/Postgres, Pix, cache e logs.
-- **Dashboard**: Frontend em Streamlit. Permite gestão de restaurantes, produtos, aliases, regras de exceção, motoboys, métricas e configurações.
+Frontend (Painel Kanban): Streamlit
 
----
+Banco de Dados: Supabase (PostgreSQL)
 
-## Estrutura
+Cache & Fila: Redis (Upstash)
 
-- `API/`
-  - `main.py`: aplicação FastAPI (webhook, integrações, rotinas e fluxo do atendimento)
-  - `health_startup.py`: checagens/diagnóstico no startup (referenciado no `main.py`)
-  - Outros módulos auxiliares (logging, integrações, etc)
-- `Dashboard/`
-  - Frontend/admin do sistema (configuração de restaurantes, cardápio, bairros, etc)
+Inteligência Artificial: Llama 3 70B via Groq API (ou GPT-4o-mini da OpenAI)
 
----
+Integração WhatsApp: UAZAPI (Webhook)
 
-## Requisitos
+Geocodificação: Google Maps API / Nominatim OpenStreetMap
 
-- Python 3.10+ (recomendado)
-- Conta/instância Supabase (tabelas como `restaurantes`, `produtos`, `bairros`, `pedidos`, `clientes_estado`, `conversas`)
-- Chave de IA (Groq)
-- Redis (opcional, porém recomendado para deduplicação/locks/rate-limit/buffer)
+Tarefas Agendadas (Crons): Cron-job.org
 
----
+Infraestrutura: Docker & Docker Compose (Hetzner/VPS)
 
-## Migrações (Supabase)
+🧠 Arquitetura: O Padrão "Dois Cérebros"
+Para otimizar custos e tempo de resposta (latência), o cérebro da IA é dividido em duas etapas:
 
-Algumas features recentes usam colunas adicionais na tabela `pedidos` (ex.: trava de aceite até o bot finalizar, badge de abandono e sinalização de atendimento humano).
+Roteador de Intenção (Rápido e Barato): Analisa a mensagem e classifica a intenção (saudacao, fazer_pedido, reclamacao, solicitar_humano).
 
+Slot Filling (Pesado e Preciso): Se a intenção for fazer_pedido, um modelo mais robusto (ex: Llama 70B) é acionado para extrair os itens, quantidades, observações e endereço, cruzando com o cardápio oficial para evitar alucinações.
 
+📂 Estrutura do Projeto
+main.py: O coração do FastAPI. Recebe os webhooks da UAZAPI e expõe os endpoints para os serviços de Cron (tarefas agendadas).
 
-## Migrações (Supabase)
+zap.py: Gerencia as filas de mensagens. Interage com o Redis para criar o Buffer de Digitação (juntando mensagens picotadas do cliente) e garantindo Idempotência (evitando processar o mesmo webhook duas vezes).
 
-Algumas features recentes usam colunas adicionais na tabela `pedidos` (ex.: trava de aceite até o bot finalizar, badge de abandono e sinalização de atendimento humano).
+cerebro.py: Onde a mágica da IA acontece. Faz as chamadas para a API da Groq/OpenAI, injeta o System Prompt, valida regras de negócio e garante que a IA não invente itens ou preços.
 
-- Rode o SQL de [supabase_pedidos_migration.sql](supabase_pedidos_migration.sql) no Supabase SQL Editor.
-- É seguro rodar mais de uma vez (`if not exists`).
+banco.py: Camada de persistência. Gerencia toda a comunicação com o Supabase (salvar pedidos, buscar histórico de clientes, verificar cardápio).
 
----
-## Configuração (.env)
+utils.py: Funções auxiliares vitais, como o gerenciador de estado do Redis (redis_claim_event_once) e roteamento de modelos de IA.
 
-A API lê variáveis via `.env` (ex.: `API/.env`) ou variáveis de ambiente do deploy.
+app.py: O painel Administrativo em Streamlit. Uma visão Kanban "Ao Vivo" para a cozinha, com paginação otimizada para não derrubar o servidor.
 
-Obrigatórias:
-- `SUPABASE_URL`
-- `SUPABASE_KEY`
-- `GROQ_API_KEY`
+⚙️ Funcionalidades Principais (Features)
+Atendimento Humanizado: Delay artificial ("digitando...") e capacidade de lidar com gírias e erros de digitação.
 
-Recomendadas:
-- `REDIS_URL` (habilita deduplicação, lock distribuído, rate-limit e buffer de mensagens)
-- `PUBLIC_BASE_URL` (para gerar link público do QR do Pix, ex.: `https://seu-dominio.com`)
+Buffer Anti-Spam (Redis): O cliente digita 5 mensagens separadas ("Oi", "Quero pizza", "de calabresa") e o sistema aguarda 3 segundos para agrupar tudo em um único bloco de texto para a IA processar.
 
-Segurança/segredos:
-- `WEBHOOK_SECRET` (se você validar webhook do provedor; depende do provedor)
-- `CRON_SECRET` (protege endpoints `/cron/*`)
-- `MP_WEBHOOK_TOKEN` (protege `/webhook/mercadopago`)
-- `CRED_ENCRYPTION_KEY` (Fernet key para decriptar credenciais como `mp_access_token_enc`)
+Transbordo Humano (Handoff): Se o cliente fizer uma pergunta complexa, xingar ou pedir para falar com o gerente, a IA pausa o chat e aciona a cozinha.
 
-Tuning/limites (defaults no código):
-- `MAX_WEBHOOK_BODY_BYTES` (default 262144)
-- `MAX_INCOMING_TEXT_CHARS` (default 4000)
+Geocodificação Automática: O cliente envia "Rua X, Número Y" e o sistema busca automaticamente o Bairro usando APIs de mapas.
 
-# AI Atendimento SaaS
+Crons de Vendas (Retargeting):
 
-Projeto completo para automatizar pedidos de restaurantes, pizzarias e marmitarias via WhatsApp, com painel de gestão intuitivo, regras flexíveis de cardápio, gestão de motoboys e integração Pix. Ideal para portfólio, pensado para operação real e fácil adaptação.
+/cron/abandoned-carts: Lembra clientes que pararam no meio do pedido.
 
----
+/cron/inactive-customers: Envia cupons para quem não pede há mais de 30 dias.
 
-## Visão Geral
+/cron/ask-review: Pede avaliação no Google Meu Negócio 2 horas após a entrega.
 
-O sistema conecta clientes ao restaurante pelo WhatsApp, reconhece pedidos automaticamente, aplica regras de mistura (quentinha, pizza, combos), permite editar produtos e aliases, e gerencia motoboys e entregas. Tudo é configurável pelo painel, sem necessidade de mexer no código.
+💻 Como Rodar o Projeto (Ambiente de Desenvolvimento)
+1. Pré-requisitos
+Docker e Docker Compose instalados.
 
-**Principais recursos:**
-- Atendimento automatizado via WhatsApp (Uazapi)
-- Integração Mercado Pago (Pix)
-- Painel de gestão (Streamlit)
-- Cadastro e edição de produtos, aliases, regras de exceção (JSON)
-- Borda grátis configurável para pizzarias
-- Validação de regras de mistura (quentinha, pizza, combos)
-- Gestão de motoboys e entregas
-- Cache e logs para performance
-- Multi-restaurante (cada restaurante tem suas configurações)
+Contas gratuitas no Supabase, Upstash (Redis) e Groq.
 
----
+2. Configurando Variáveis de Ambiente
+Crie um arquivo .env na raiz do projeto e preencha com as suas chaves:
 
-## Arquitetura
+Snippet de código
+# Configurações da IA
+GROQ_API_KEY=sua_chave_groq_aqui
+INTENT_ROUTER_MODEL=llama3-8b-8192
+SLOT_FILLING_MODEL=llama-3.1-70b-versatile
 
-**Frontend:**
-- Dashboard (Streamlit/app.py): painel para gestão de cardápio, produtos, aliases, regras, motoboys, configurações e métricas.
+# Banco de Dados e Cache
+SUPABASE_URL=sua_url_supabase
+SUPABASE_KEY=sua_chave_supabase
+REDIS_URL=sua_url_upstash
 
-**Backend:**
-- API (FastAPI): webhooks, validação de pedidos, integração Pix, regras de exceção, cache, logs.
-- Banco de dados (Supabase/Postgres): restaurantes, produtos, pedidos, aliases, regras, motoboys.
-- Redis (opcional): rate-limit, buffer, locks.
+# WhatsApp
+UAZAPI_TOKEN=seu_token_webhook
+CRON_SECRET=senha_segura_para_os_crons
+3. Iniciando com Docker
+Basta rodar o comando abaixo para subir o Backend (FastAPI), Frontend (Streamlit) e o Redis (se local):
 
----
+Bash
+docker-compose up --build -d
+API FastAPI: http://localhost:8000
 
-## Fluxo Operacional
+Painel Streamlit: http://localhost:8501
 
-1. Cliente envia mensagem no WhatsApp.
-2. API recebe via webhook, valida cardápio, aplica aliases e regras.
-3. Painel permite editar produtos, aliases, regras de exceção (JSON), borda grátis, motoboys.
-4. Pedido é processado, Pix gerado, status atualizado.
-5. Motoboy recebe entrega, painel mostra métricas e histórico.
+🔒 Regras de Segurança e Proteção
+Matemática Burra na IA: A IA nunca calcula o valor final do pedido. Ela apenas extrai os itens. O banco.py puxa os preços oficiais do Supabase e faz a soma, garantindo zero prejuízo por alucinação.
 
----
+Política de Uso Justo (Rate Limit): Todas as chamadas de API são contabilizadas no banco de dados. Caso um restaurante passe de um limite de requisições, o sistema acusa excesso para evitar surpresas na fatura da Groq/OpenAI.
 
-## Diferenciais
+Isolamento de Dados: Cada restaurante_id possui seus próprios fluxos de caixa e painéis, garantindo que a Pizzaria A não veja os dados da Hambugueria B.
 
-- Regras de exceção estruturadas (JSON) para validar misturas, limites, combos.
-- Aliases automáticos e editáveis para produtos (facilita reconhecimento de pedidos).
-- Borda grátis configurável (backend e painel).
-- Multi-tenant: cada restaurante tem seu cardápio, regras e configurações.
-- Painel intuitivo para não técnicos.
-- Logs detalhados e cache para performance.
+🗺️ Roadmap Futuro
+[ ] Migração do Webhook UAZAPI para a WhatsApp Cloud API Oficial (Meta) para contas verificadas.
 
----
+[ ] Refatoração do Frontend (app.py) de Streamlit para React / Next.js para suportar centenas de weblogs simultâneos na cozinha sem sobrecarregar o servidor.
 
-## Tecnologias
-
-- FastAPI (backend)
-- Streamlit (dashboard)
-- Supabase/Postgres (banco de dados)
-- Redis (opcional)
-- Mercado Pago (Pix)
-- Uazapi (WhatsApp)
-
----
-
-## Estrutura do Projeto
-
-
-```
-API/
-  main.py             # Entrypoint FastAPI: endpoints, middleware, rotinas
-  cerebro.py          # Lógica central: validação de pedidos, aliases, regras, borda grátis, exceções
-  banco.py            # Integração Supabase/Postgres, Pix, cache, persistência
-  zap.py              # Webhook WhatsApp, envio de mensagens, integração Uazapi
-  health_startup.py   # Diagnóstico inicial da API
-  logging_setup.py    # Configuração de logs
-  requirements.txt    # Dependências backend
-  utils.py            # Funções utilitárias, helpers, configuração
-  __pycache__/        # Cache de módulos Python
-  supabase_*.sql      # Scripts de migração de banco (pedidos, borda, regras, etc)
-
-Dashboard/
-  app.py              # Streamlit dashboard: frontend/admin, gestão de restaurantes, produtos, regras, motoboys
-  requirements.txt    # Dependências frontend
-  Dockerfile          # Containerização do dashboard
-
-logs/
-  api.log.*           # Logs da API (por data)
-  dashboard.log.*     # Logs do dashboard (por data)
-
-CONFIGURACAO_DO_BOT.txt      # Checklist/configuração operacional do bot
-DOCUMENTACAO_COMPLETA_DO_CODIGO.txt # Documentação detalhada do código
-Fases.txt                    # Planejamento de fases do projeto
-README.md                    # Documentação principal (este arquivo)
-
-tools/                       # Scripts e utilitários auxiliares
-```
-
----
-
-## Configuração e Uso
-
-1. Configure o .env com as chaves do Supabase, Mercado Pago, Uazapi, etc.
-2. Rode o backend (FastAPI) e o frontend (Streamlit).
-3. Acesse o painel para cadastrar produtos, aliases, regras, motoboys.
-4. O bot já reconhece aliases, aplica borda grátis (se configurado), valida regras de mistura.
-5. Pedidos são processados automaticamente, Pix gerado, motoboy recebe entrega.
-
----
-
-## Exemplo de Regra de Exceção (JSON)
-
-```json
-{
-  "quentinha": {
-    "max_misturas": 2,
-    "permitidos": ["carne", "frango", "peixe", "ovo"]
-  },
-  "pizza": {
-    "borda_gratis": true,
-    "sabores_max": 2
-  }
-}
-```
-
----
-
-## Observações
-
-- O painel permite editar todas as regras e aliases sem necessidade de código.
-- O backend valida tudo antes de fechar o pedido, evitando erros.
-- Logs e cache garantem performance e rastreabilidade.
-
----
-
-## Portfolio
-
-Projeto pensado para ser flexível, robusto e fácil de operar, ideal para restaurantes que querem automatizar pedidos sem complicação. O código está organizado, documentado e pronto para ser usado ou adaptado.
-
-Qualquer dúvida ou sugestão, entre em contato!
+[ ] Integração nativa com APIs de pagamento (Mercado Pago / Asaas) para geração de PIX Copia e Cola automático.
