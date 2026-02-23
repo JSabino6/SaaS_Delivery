@@ -1,14 +1,13 @@
-# AI Atendimento
+# AI Atendimento SaaS
 
-Este projeto nasceu da necessidade de automatizar o atendimento em pizzarias locais, solucionando dores reais do comércio. O desenvolvimento uniu tecnologias que eu já dominava a novas stacks que integrei durante meus estudos. Atualmente, o fluxo principal de atendimento está estável e funcional. O projeto encontra-se em fase de lapidação em ambiente local, com foco total no refinamento da arquitetura multi-tenant.
+Automatize pedidos e atendimento para restaurantes, pizzarias e marmitarias via WhatsApp, com painel de gestão intuitivo, regras flexíveis de cardápio, gestão de motoboys e integração Pix. Projeto robusto, multi-tenant, ideal para uso real.
 
->>>>>>> cbb02c39c9b6974d5c7bc8f1492bd7869b69b790
-Projeto com dois componentes principais:
-Este projeto nasceu da necessidade de automatizar o atendimento em pizzarias locais, solucionando dores reais do comércio. O desenvolvimento uniu tecnologias que eu já dominava a novas stacks que integrei durante meus estudos. Atualmente, o fluxo principal de atendimento está estável e funcional. O projeto encontra-se em fase de lapidação em ambiente local, com foco total no refinamento da arquitetura multi-tenant.
-Projeto com dois componentes principais:
+---
 
-- **API**: backend (FastAPI) responsável por receber webhooks do WhatsApp/provider, orquestrar atendimento via IA, gerenciar carrinho/pedidos no Supabase, estoque e rotinas (cron).
-- **Dashboard**: interface de administração (cadastros, configurações do bot, produtos, bairros/taxas, etc).
+**Componentes principais:**
+
+- **API**: Backend em FastAPI. Recebe webhooks do WhatsApp, processa pedidos, valida regras, integra com Supabase/Postgres, Pix, cache e logs.
+- **Dashboard**: Frontend em Streamlit. Permite gestão de restaurantes, produtos, aliases, regras de exceção, motoboys, métricas e configurações.
 
 ---
 
@@ -138,18 +137,35 @@ O sistema conecta clientes ao restaurante pelo WhatsApp, reconhece pedidos autom
 
 ## Estrutura do Projeto
 
+
 ```
 API/
-  main.py           # FastAPI endpoints
-  cerebro.py        # Lógica de validação, aliases, regras, borda
-  banco.py          # Supabase/Postgres, Pix, cache
-  zap.py            # Webhook WhatsApp, envio de mensagens
-  health_startup.py # Diagnóstico inicial
-  requirements.txt  # Dependências backend
+  main.py             # Entrypoint FastAPI: endpoints, middleware, rotinas
+  cerebro.py          # Lógica central: validação de pedidos, aliases, regras, borda grátis, exceções
+  banco.py            # Integração Supabase/Postgres, Pix, cache, persistência
+  zap.py              # Webhook WhatsApp, envio de mensagens, integração Uazapi
+  health_startup.py   # Diagnóstico inicial da API
+  logging_setup.py    # Configuração de logs
+  requirements.txt    # Dependências backend
+  utils.py            # Funções utilitárias, helpers, configuração
+  __pycache__/        # Cache de módulos Python
+  supabase_*.sql      # Scripts de migração de banco (pedidos, borda, regras, etc)
+
 Dashboard/
-  app.py            # Streamlit dashboard (frontend)
-  requirements.txt  # Dependências frontend
-logs/               # Logs de API e dashboard
+  app.py              # Streamlit dashboard: frontend/admin, gestão de restaurantes, produtos, regras, motoboys
+  requirements.txt    # Dependências frontend
+  Dockerfile          # Containerização do dashboard
+
+logs/
+  api.log.*           # Logs da API (por data)
+  dashboard.log.*     # Logs do dashboard (por data)
+
+CONFIGURACAO_DO_BOT.txt      # Checklist/configuração operacional do bot
+DOCUMENTACAO_COMPLETA_DO_CODIGO.txt # Documentação detalhada do código
+Fases.txt                    # Planejamento de fases do projeto
+README.md                    # Documentação principal (este arquivo)
+
+tools/                       # Scripts e utilitários auxiliares
 ```
 
 ---
