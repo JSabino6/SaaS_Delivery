@@ -1,106 +1,167 @@
-🍕 AI Delivery SaaS (Assistente Virtual para Restaurantes)
-Um sistema completo de Software as a Service (SaaS) focado em automatizar o atendimento via WhatsApp para pizzarias e hamburguerias. O sistema utiliza Inteligência Artificial para interpretar áudios confusos, mensagens picotadas e mudanças de ideia do cliente, transformando tudo em um pedido estruturado (JSON) que cai direto em um painel Kanban na cozinha.
+# AI Atendimento SaaS
 
-🚀 O Problema que Resolvemos
-Restaurantes perdem vendas nos horários de pico (sextas e sábados) porque os atendentes humanos não conseguem responder múltiplos clientes ao mesmo tempo. Sistemas tradicionais de bot (com botões "Digite 1 para Pizza") são frustrantes. O sistema oferece um atendimento conversacional, humanizado e à prova de alucinações, lidando com cardápios dinâmicos e regras matemáticas complexas.
+Eu desenvolvi este projeto para automatizar atendimento e pedidos via WhatsApp em operações de delivery (pizzaria, marmitaria e restaurante), mantendo controle real de cardápio, estoque, pagamento e entrega.
 
-🛠️ Stack Tecnológica
-A arquitetura foi desenhada para ter custo operacional baixíssimo e altíssima escalabilidade.
+A proposta é simples: reduzir gargalo de atendimento nos horários de pico sem transformar a conversa em um bot engessado. O cliente conversa naturalmente, e o sistema organiza tudo em fluxo operacional.
 
-Backend: Python 3 (FastAPI)
+---
 
-Frontend (Painel Kanban): Streamlit 
+## O que o projeto faz
 
-Banco de Dados: Supabase (PostgreSQL)
+- Recebe mensagens do WhatsApp via webhook
+- Interpreta intenção e itens com IA
+- Valida pedido com regras do cardápio (sem deixar a IA inventar preço)
+- Gerencia estado de conversa por cliente
+- Fecha pedido com entrega, taxa de bairro e pagamento
+- Gera Pix no WhatsApp (Mercado Pago) quando habilitado
+- Atualiza dashboard em tempo real para operação
+- Executa rotinas automáticas (carrinho abandonado, reset de estado, avaliação)
 
-Cache & Fila: Redis (Upstash)
+---
 
-Inteligência Artificial: Llama 3 70B via Groq API (ou GPT-4o-mini da OpenAI) e Modelo Groq Whisper 
+## Arquitetura atual
 
-Integração WhatsApp: UAZAPI (Webhook)
+Eu separei o sistema em dois blocos:
 
-Tarefas Agendadas (Crons): Cron-job.org
+### 1) Frontend/Admin
+- **Dashboard Streamlit**: `Dashboard/app.py`
+- É o painel operacional: pedidos live, cardápio, produtos, aliases, regras de exceção, motoboys, configurações e métricas.
 
-Infraestrutura: Docker & Docker Compose (Hetzner/VPS)
+### 2) Backend
+- **API FastAPI**: pasta `API/`
+- Responsável por webhook, motor conversacional, persistência, pagamentos, validações, cron jobs e integrações.
 
-🧠 Arquitetura: O Padrão "Dois Cérebros"
-Para otimizar custos e tempo de resposta (latência), o cérebro da IA é dividido em duas etapas:
+Serviços de apoio:
+- Supabase/Postgres (dados)
+- Redis (opcional, mas recomendado para buffer/dedup/lock/cache)
+- Uazapi (mensageria WhatsApp)
+- Groq (LLM e transcrição)
+- Mercado Pago (Pix)
 
-Roteador de Intenção (Rápido e Barato): Analisa a mensagem e classifica a intenção (saudacao, fazer_pedido, reclamacao, solicitar_humano).
+---
 
-Slot Filling (Pesado e Preciso): Se a intenção for fazer_pedido, um modelo mais robusto (ex: Llama 70B) é acionado para extrair os itens, quantidades, observações e endereço, cruzando com o cardápio oficial para evitar alucinações.
+## Estrutura real do repositório
 
-📂 Estrutura do Projeto
-main.py: O coração do FastAPI. Recebe os webhooks da UAZAPI e expõe os endpoints para os serviços de Cron (tarefas agendadas).
+```text
+.
+├─ API/
+│  ├─ main.py                  # Entrypoint FastAPI, middleware e rotas HTTP
+│  ├─ cerebro.py               # Núcleo de decisão conversacional e validação de pedido
+│  ├─ banco.py                 # Camada de acesso a dados, cron, Pix e utilitários de persistência
+│  ├─ zap.py                   # Webhook WhatsApp, debounce/buffer e envio de mensagens
+│  ├─ utils.py                 # Config, helpers, normalização de texto, Redis e logging base
+│  ├─ health_startup.py        # Diagnóstico de inicialização
+│  ├─ logging_setup.py         # Configuração de logger da API
+│  ├─ testaraudio.py           # Teste utilitário de áudio/transcrição
+│  ├─ teste_zap.py             # Teste utilitário de integração WhatsApp
+│  ├─ requirements.txt
+│  └─ Dockerfile
+│
+├─ Dashboard/
+│  ├─ app.py                   # Frontend Streamlit (painel de gestão)
+│  ├─ requirements.txt
+│  └─ Dockerfile
+│
+├─ docker-compose.yml
+├─ logging_setup.py            # Setup de logs compartilhado na raiz
+├─ Simulador_zap.py            # Simulador/apoio de testes de mensagens
+├─ README.md
+├─ CONFIGURACAO_DO_BOT.txt
+├─ DOCUMENTACAO_COMPLETA_DO_CODIGO.txt
+├─ SECURITY_NEXT_STEPS.md
+├─ Fases.txt
+├─ tools/
+├─ logs/                       # Logs rotacionados da API e do Dashboard
+│
+├─ restaurantes_rows.sql
+├─ supabase_entregas.sql
+├─ supabase_loja_faq.sql
+├─ supabase_motoboys.sql
+├─ supabase_payments.sql
+├─ supabase_pedidos_itens.sql
+└─ supabase_pedidos_migration.sql
+```
 
-zap.py: Gerencia as filas de mensagens. Interage com o Redis para criar o Buffer de Digitação (juntando mensagens picotadas do cliente) e garantindo Idempotência (evitando processar o mesmo webhook duas vezes).
+---
 
-cerebro.py: Onde a mágica da IA acontece. Faz as chamadas para a API da Groq/OpenAI, injeta o System Prompt, valida regras de negócio e garante que a IA não invente itens ou preços.
+## Fluxo resumido de ponta a ponta
 
-banco.py: Camada de persistência. Gerencia toda a comunicação com o Supabase (salvar pedidos, buscar histórico de clientes, verificar cardápio).
+1. O cliente manda mensagem no WhatsApp.
+2. `API/zap.py` recebe o webhook e agrega mensagens curtas com debounce.
+3. `API/cerebro.py` interpreta intenção e extrai slots do pedido.
+4. `API/banco.py` valida no cardápio oficial, aplica regras, persiste pedido e itens.
+5. Se Pix estiver ativo, o sistema cria cobrança e aguarda confirmação do webhook de pagamento.
+6. O Dashboard acompanha status e execução operacional em tempo real.
 
-utils.py: Funções auxiliares vitais, como o gerenciador de estado do Redis (redis_claim_event_once) e roteamento de modelos de IA.
+---
 
-app.py: O painel Administrativo em Streamlit. Uma visão Kanban "Ao Vivo" para a cozinha, com paginação otimizada para não derrubar o servidor.
+## Endpoints principais da API
 
-⚙️ Funcionalidades Principais (Features)
-Atendimento Humanizado: Delay artificial ("digitando...") e capacidade de lidar com gírias e erros de digitação.
+- `POST /webhook`
+- `POST /webhook/mercadopago`
+- `GET /payments/qr/{payment_id}.png`
+- `GET /health`
+- `POST /admin/cache/invalidate`
+- `POST /admin/chat/toggle_pause`
+- `GET /cron/abandoned-carts`
+- `GET /cron/reset-states`
+- `GET /cron/avaliar`
 
-Buffer Anti-Spam (Redis): O cliente digita 5 mensagens separadas ("Oi", "Quero pizza", "de calabresa") e o sistema aguarda 3 segundos para agrupar tudo em um único bloco de texto para a IA processar.
+---
 
-Transbordo Humano (Handoff): Se o cliente fizer uma pergunta complexa, xingar ou pedir para falar com o gerente, a IA pausa o chat e aciona a cozinha.
+## Diferenciais de implementação
 
-Geocodificação Automática: O cliente envia "Rua X, Número Y" e o sistema busca automaticamente o Bairro usando APIs de mapas.
+- **Multi-tenant de verdade**: cada restaurante tem configuração, cardápio e operação isolados.
+- **Regras de exceção por JSON**: adapto facilmente cenários como quentinha, meio a meio, adicionais e borda.
+- **Aliases de produto**: melhora reconhecimento de linguagem natural sem depender de nome exato.
+- **Borda grátis configurável**: regra operacional editável por restaurante.
+- **IA com guardrails**: a IA sugere; o backend valida preço/estoque/consistência.
+- **Resiliência operacional**: debounce, deduplicação, lock e cache via Redis.
 
-Crons de Vendas (Retargeting):
+---
 
-/cron/abandoned-carts: Lembra clientes que pararam no meio do pedido.
+## Como rodar
 
-/cron/inactive-customers: Envia cupons para quem não pede há mais de 30 dias.
+### Pré-requisitos
+- Python 3.10+
+- Projeto Supabase configurado
+- Chave da Groq
+- Instância Uazapi
+- (Recomendado) Redis
 
-/cron/ask-review: Pede avaliação no Google Meu Negócio 2 horas após a entrega.
+### Variáveis mínimas
+- `SUPABASE_URL`
+- `SUPABASE_KEY`
+- `GROQ_API_KEY`
+- `WEBHOOK_SECRET`
+- `PUBLIC_BASE_URL`
 
-💻 Como Rodar o Projeto (Ambiente de Desenvolvimento)
-1. Pré-requisitos
-Docker e Docker Compose instalados.
-
-Contas gratuitas no Supabase, Upstash (Redis) e Groq.
-
-2. Configurando Variáveis de Ambiente
-Crie um arquivo .env na raiz do projeto e preencha com as suas chaves:
-
-Snippet de código
-# Configurações da IA
-GROQ_API_KEY=sua_chave_groq_aqui
-INTENT_ROUTER_MODEL=llama3-8b-8192
-SLOT_FILLING_MODEL=llama-3.1-70b-versatile
-
-# Banco de Dados e Cache
-SUPABASE_URL=sua_url_supabase
-SUPABASE_KEY=sua_chave_supabase
-REDIS_URL=sua_url_upstash
-
-# WhatsApp
-UAZAPI_TOKEN=seu_token_webhook
-CRON_SECRET=senha_segura_para_os_crons
-3. Iniciando com Docker
-Basta rodar o comando abaixo para subir o Backend (FastAPI), Frontend (Streamlit) e o Redis (se local):
-
-Bash
+### Subir com Docker
+```bash
 docker-compose up --build -d
-API FastAPI: ----
+```
 
-Painel Streamlit: ----
+### Rodar local (sem Docker)
+```bash
+# API
+cd API
+pip install -r requirements.txt
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
-🔒 Regras de Segurança e Proteção
-Matemática Burra na IA: A IA nunca calcula o valor final do pedido. Ela apenas extrai os itens. O banco.py puxa os preços oficiais do Supabase e faz a soma, garantindo zero prejuízo por alucinação.
+# Dashboard (novo terminal)
+cd Dashboard
+pip install -r requirements.txt
+streamlit run app.py
+```
 
-Política de Uso Justo (Rate Limit): Todas as chamadas de API são contabilizadas no banco de dados. Caso um restaurante passe de um limite de requisições, o sistema acusa excesso para evitar surpresas na fatura da Groq/OpenAI.
+---
 
-Isolamento de Dados: Cada restaurante_id possui seus próprios fluxos de caixa e painéis, garantindo que a Pizzaria A não veja os dados da Hambugueria B.
+## Status do projeto
 
-🗺️ Roadmap Futuro
-[ ] Migração do Webhook UAZAPI para a WhatsApp Cloud API Oficial (Meta) para contas verificadas.
+O projeto está funcional e em uso de lapidação contínua: estou refinando regras de negócio, observabilidade e experiência operacional do painel.
 
-[ ] Refatoração do Frontend (app.py) de Streamlit para React / Next.js para suportar centenas de weblogs simultâneos na cozinha sem sobrecarregar o servidor.
+---
 
+## Autor
+
+Projeto pessoal desenvolvido por mim, com foco em arquitetura aplicada, integração de serviços reais e operação de delivery no mundo real.
