@@ -1,9 +1,0 @@
-streamlit
-streamlit-autorefresh
-supabase
-pandas
-altair
-python-dotenv
-requests
-Pillow
-cryptography
