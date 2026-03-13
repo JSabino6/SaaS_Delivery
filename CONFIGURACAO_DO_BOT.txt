@@ -1,51 +1,95 @@
 CHECKLIST DE CONFIGURAÇÃO DO BOT (VERSÃO ATUAL)
-Data: 2026-03-02
-
-Este documento é o meu guia operacional para colocar o bot em funcionamento com segurança.
-A ideia é simples: seguir do topo ao fim e validar cada etapa.
+Data: 2026-03-09
 
 =================================================================
-1) COMPONENTES QUE EU PRECISO TER RODANDO
+ATUALIZACAO OPERACIONAL - 2026-03-13
+=================================================================
+
+Resumo das atualizacoes recentes aplicadas no projeto:
+
+1) Auto-recuperacao de WhatsApp (Dashboard + API)
+- Endpoint administrativo para status e QR: POST /admin/whatsapp/qrcode
+- Dashboard agora usa polling para exibir estado de conexao e QR de reconexao.
+
+2) Compatibilidade de status com uazapi
+- Ajustado parser para payloads aninhados.
+- Evita falso positivo de "connected" quando o payload contem objeto status com connected=false.
+- Suporte a leitura de status pela rota canonica da uazapi: /instance/status.
+
+3) Compatibilidade de QR em payload aninhado
+- QR pode vir em instance.qrcode.
+- Parser atualizado para capturar qrcode em raiz, data e instance.
+
+Checklist rapido de validacao (ambiente):
+- Confirmar CACHE_INVALIDATE_URL apontando para a API ativa.
+- Confirmar CACHE_INVALIDATE_TOKEN igual entre Dashboard e API.
+- Testar rota local:
+	- POST /admin/whatsapp/qrcode
+	- Esperado em desconectado: status=connecting ou disconnected com qr_code presente quando a uazapi fornecer.
+
+Checklist para publicacao de snippets seguros:
+- Nao publicar tokens, URLs privadas, segredos ou payloads de clientes.
+- Mascarar qualquer identificador sensivel em exemplos.
+- Publicar apenas funcoes autocontidas e sem dependencia de dados proprietarios.
+- Incluir nota de contexto: "recorte arquitetural" e "nao representa SaaS completo".
+
+Este documento é o guia operacional atualizado para colocar o sistema em funcionamento com o estado real do projeto hoje.
+Ele considera o backend FastAPI, o Dashboard Streamlit, o motor conversacional v2, a operação multi-tenant com perfis e a estrutura inteligente do cardápio.
+
+=================================================================
+1) COMPONENTES QUE PRECISAM ESTAR RODANDO
 =================================================================
 
 1.1 Backend (FastAPI) - pasta API/
-- Responsável por webhook, processamento conversacional, pedido, pagamento e cron.
 - Entrypoint: API/main.py
+- Responsável por webhook, processamento conversacional, estoque, checkout, Pix, cron e utilitários administrativos
 
 1.2 Frontend (Dashboard Streamlit) - pasta Dashboard/
-- Painel operacional para restaurante/admin.
 - Entrypoint: Dashboard/app.py
+- Responsável por operação, cardápio, aliases, perfis, motoboys, estrutura inteligente do cardápio e configurações do tenant
 
 1.3 Banco (Supabase / Postgres)
-- Tabelas de restaurante, produto, pedido, estado de conversa, entrega, etc.
+- Persiste tenant, perfis, cardápio, estado de conversa, pedidos, pagamento e logística
 
 1.4 Redis (opcional, mas recomendado)
-- Buffer/debounce de mensagens
+- Buffer/debounce
 - Deduplicação de webhook
 - Rate limit
 - Locks distribuídos
-- Cache de dados do restaurante
+- Cache de tenant
+
+1.5 Uazapi
+- Recebimento e envio de mensagens do WhatsApp
+
+1.6 Groq
+- LLM do agente conversacional
+- Transcrição/normalização quando habilitado por configuração
+
+1.7 Mercado Pago (opcional por tenant)
+- Pix no WhatsApp quando habilitado
 
 =================================================================
 2) VARIÁVEIS DE AMBIENTE ESSENCIAIS
 =================================================================
 
-Obrigatórias (mínimo para iniciar):
+Obrigatórias para iniciar:
 - SUPABASE_URL
 - SUPABASE_KEY
 - GROQ_API_KEY
 - WEBHOOK_SECRET
 - PUBLIC_BASE_URL
 
-Segurança/integrações:
+Obrigatórias para segurança/operação:
 - CRON_SECRET
-- MP_WEBHOOK_TOKEN
-- CRED_ENCRYPTION_KEY
 - CACHE_INVALIDATE_TOKEN
+- CRED_ENCRYPTION_KEY
 
-Admin Dashboard:
+Obrigatórias para Dashboard admin:
 - ADMIN_USER
 - ADMIN_PASS
+
+Necessárias quando usar Pix Mercado Pago:
+- MP_WEBHOOK_TOKEN
 
 Recomendadas para estabilidade:
 - REDIS_URL
@@ -56,8 +100,18 @@ Recomendadas para estabilidade:
 - MAX_INCOMING_TEXT_CHARS=4000
 - MAX_BUFFER_TEXT_CHARS=8000
 - MAX_QTD_ITEM=10
+- GROQ_TIMEOUT_SECONDS=20
+- SUPABASE_TIMEOUT_SECONDS=20
+- GROQ_MAX_CONCURRENCY=2
+- SEND_MAX_CONCURRENCY
 
-Parâmetros de rotina:
+Variáveis úteis da Uazapi:
+- UAZAPI_BASE_URL
+- UAZAPI_TIMEOUT
+- UAZAPI_PRESENCE_ENABLED
+- UAZAPI_PRESENCE_DELAY_MS
+
+Variáveis de cron:
 - CART_ABANDONED_REMINDER_MIN=10
 - CART_ABANDONED_CANCEL_MIN=15
 - MAX_ABANDONED_SWEEP=200
@@ -66,78 +120,220 @@ Parâmetros de rotina:
 - AVALIACAO_DELAY_MIN=30
 - MAX_AVALIACAO_SWEEP=200
 
+Variáveis opcionais do roteamento/normalização por IA:
+- INTENT_ROUTER_ENABLED
+- INTENT_ROUTER_MODEL
+- SLOT_FILLING_ENABLED
+- SLOT_FILLING_MODEL
+- NORMALIZE_TEXT_ENABLED
+- NORMALIZE_TEXT_MODEL
+- NORMALIZE_TEXT_FOR_AUDIO
+- NORMALIZE_TEXT_FOR_CONFUSING
+
+Observação importante:
+- Backend e Dashboard precisam usar a mesma CRED_ENCRYPTION_KEY. Caso contrário, leitura e gravação de segredos criptografados ficam inconsistentes.
+
 =================================================================
 3) CONFIGURAÇÃO DO SUPABASE
 =================================================================
 
-3.1 Aplicar SQLs do projeto
+3.1 Aplicar SQLs/Migrations relevantes do projeto
+Arquivos observados no repositório:
 - restaurantes_rows.sql
 - supabase_payments.sql
 - supabase_motoboys.sql
 - supabase_entregas.sql
 - supabase_pedidos_itens.sql
 - supabase_pedidos_migration.sql
-- supabase_loja_faq.sql (se eu for usar FAQ por loja)
+- supabase_loja_faq.sql
+- supabase_clientes_estado_pause.sql
+- supabase_clientes_perfil.sql
+- supabase_restaurante_perfis.sql
+- supabase_metricas_gastos.sql
 
-3.2 Tabelas que o projeto usa no fluxo
+3.2 Tabelas usadas no fluxo atual
 - restaurantes
+- restaurante_perfis
 - produtos
+- produtos_aliases
 - bairros
 - pedidos
-- pedidos_itens (quando habilitado via migration)
+- pedidos_itens
 - conversas
 - clientes_estado
 - motoboys
 - entregas
+- metricas_gastos_restaurante
 
 3.3 Campos importantes em restaurantes
 - id
 - nome
+- usuario
+- senha
 - phone_id
 - instance_name
 - instance_token
 - bot_ativo
 - system_prompt
+- mensagem_fechado
+- regras_excecao_json
 - taxa_entrega_padrao
+- taxa_unica_ativa
+- borda_gratis_automatica_ativa
+- borda_gratis_padrao_nome
+- endereco_loja
+- telefone_loja
+- horario_loja
 - pix_whatsapp_enabled
 - pix_provider
 - mp_access_token_enc
-- regras_excecao_json (quando eu estiver usando regras estruturadas)
+- perfil_ativo_id
+
+3.4 Campos importantes em restaurante_perfis
+- id
+- restaurante_id
+- nome
+- slug
+- ativo
+- ordem
+- system_prompt
+- regras_excecao_json
+- bot_ativo
+- mensagem_fechado
+- taxa_entrega_padrao
+- taxa_unica_ativa
+- borda_gratis_automatica_ativa
+- borda_gratis_padrao_nome
+- endereco_loja
+- telefone_loja
+- horario_loja
+
+3.5 Campos importantes em produtos
+- restaurante_id
+- perfil_id
+- nome
+- descricao
+- preco
+- categoria
+- estoque
+- disponivel
+- volume_ml
 
 =================================================================
-4) CONFIGURAÇÃO DO WHATSAPP (UAZAPI)
+4) MULTI-TENANT E PERFIS
 =================================================================
 
-4.1 Para receber mensagens
-Configurar webhook no provedor apontando para:
+O sistema atual é multi-tenant por restaurante com suporte adicional a múltiplos perfis por restaurante.
+
+Checklist de funcionamento:
+- Cada restaurante precisa ter registro em restaurantes
+- Se usar perfis, a tabela restaurante_perfis deve existir
+- restaurantes.perfil_ativo_id deve apontar para o perfil atual quando houver perfis ativos
+- Produtos e aliases podem ser escopados por perfil_id
+- O backend mergeia o restaurante base com o perfil ativo antes de montar contexto operacional
+
+Regra prática:
+- Se houver perfil ativo, cardápio, aliases, prompt e regras podem variar por perfil.
+- Se não houver perfil ativo, o sistema usa a configuração base do restaurante.
+
+=================================================================
+5) CONFIGURAÇÃO DO WHATSAPP (UAZAPI)
+=================================================================
+
+5.1 Recebimento
+Configurar webhook do provedor apontando para:
 - {PUBLIC_BASE_URL}/webhook?token={WEBHOOK_SECRET}
 
-4.2 Para enviar mensagens
-Cada restaurante precisa ter no banco:
-- instance_token
+5.2 Envio
+Cada tenant precisa ter no banco:
 - instance_name
+- instance_token
 - phone_id
 
-Sem esses três campos corretos, o envio falha.
+Sem esses três campos corretos:
+- o backend não consegue identificar o tenant
+- o envio de mensagens falha
+
+5.3 Presença/typing
+Se habilitado:
+- UAZAPI_PRESENCE_ENABLED=1
+- UAZAPI_PRESENCE_DELAY_MS ajusta o atraso de presença antes da resposta
 
 =================================================================
-5) CONFIGURAÇÃO DE PIX (MERCADO PAGO)
+6) CONFIGURAÇÃO DE PIX (MERCADO PAGO)
 =================================================================
 
-5.1 Pré-requisito
-- Token de acesso do MP por restaurante.
+6.1 Pré-requisitos
+- Token de acesso do Mercado Pago por restaurante/perfil operacional
+- CRED_ENCRYPTION_KEY igual no Dashboard e na API
 
-5.2 Como eu configuro
-- Cadastro o token no Dashboard.
-- O painel criptografa e salva em mp_access_token_enc.
-- Backend e Dashboard devem usar a mesma CRED_ENCRYPTION_KEY.
+6.2 Fluxo atual
+- O token é salvo criptografado em mp_access_token_enc
+- O backend descriptografa quando necessário
+- O tenant pode operar em modo Pix no WhatsApp ou fallback manual na entrega/retirada
 
-5.3 Webhook do Mercado Pago
-- Endpoint no backend: /webhook/mercadopago
-- Validar MP_WEBHOOK_TOKEN nas chamadas.
+6.3 Webhook Mercado Pago
+Endpoint:
+- POST /webhook/mercadopago
+
+Validação:
+- MP_WEBHOOK_TOKEN deve estar alinhado com o provedor
 
 =================================================================
-6) ENDPOINTS QUE PRECISAM ESTAR ACESSÍVEIS
+7) CARDÁPIO E ESTRUTURA INTELIGENTE
+=================================================================
+
+O sistema atual possui dois níveis de configuração de cardápio:
+
+7.1 Cardápio base
+- Tabela produtos
+- Preço simples e oficial por item
+
+7.2 Estrutura inteligente do cardápio
+- Fica em regras_excecao_json
+- É editada visualmente no Dashboard na área Gestão de Cardápio
+
+Estruturas atuais suportadas:
+- grupos_opcoes
+- secoes_configuraveis
+
+Tipos de seção configurável atualmente usados no editor visual:
+- choice_single
+- choice_multi
+- variant_selector
+- addon_group
+
+Modos de preço observados no backend/editor:
+- sum_selected
+- replace_base_price
+- largest_selected
+- fixed_delta
+- no_charge
+
+Princípio operacional importante:
+- A IA não calcula preço final.
+- A estrutura inteligente do cardápio alimenta o backend, e o backend decide o preço.
+
+=================================================================
+8) PROMPT E PERSONALIZAÇÃO DO BOT
+=================================================================
+
+O prompt atual do restaurante/perfil é estruturado em blocos:
+- TOM DE VOZ
+- SAUDACAO
+- UPSELL
+- REGRAS POSITIVAS
+- REGRAS NEGATIVAS
+
+Esses blocos são montados pelo Dashboard e parseados pelo agente v2.
+
+Recomendação operacional:
+- Use REGRAS POSITIVAS para instruções obrigatórias de atendimento
+- Use REGRAS NEGATIVAS para restrições comportamentais
+- Não coloque regra de preço no prompt; preço deve ficar no banco e no backend
+
+=================================================================
+9) ENDPOINTS QUE PRECISAM ESTAR ACESSÍVEIS
 =================================================================
 
 API principal:
@@ -156,24 +352,24 @@ Crons:
 - GET /cron/avaliar
 
 =================================================================
-7) AGENDAMENTO DE CRON (OBRIGATÓRIO EM PRODUÇÃO)
+10) AGENDAMENTO DE CRON
 =================================================================
 
-Todos os endpoints /cron devem ser chamados com token (query ou header).
+Todos os endpoints /cron devem ser protegidos por CRON_SECRET.
 
-Sugestão prática de frequência:
+Frequência prática sugerida:
 - /cron/abandoned-carts -> a cada 2 a 5 minutos
 - /cron/reset-states -> a cada 10 a 30 minutos
 - /cron/avaliar -> a cada 10 minutos
 
 =================================================================
-8) EXECUÇÃO DO PROJETO
+11) EXECUÇÃO DO PROJETO
 =================================================================
 
-8.1 Docker (recomendado)
+11.1 Docker
 - docker-compose up --build -d
 
-8.2 Local manual
+11.2 Manual
 Backend:
 - cd API
 - pip install -r requirements.txt
@@ -185,29 +381,57 @@ Dashboard:
 - streamlit run app.py
 
 =================================================================
-9) CHECKLIST RÁPIDO DE VALIDAÇÃO
+12) CHECKLIST RÁPIDO DE VALIDAÇÃO
 =================================================================
 
 [ ] /health responde OK
 [ ] webhook do WhatsApp chega na API
-[ ] bot responde texto normal
+[ ] envio Uazapi funciona com instance_name, instance_token e phone_id corretos
+[ ] tenant é identificado corretamente pelo phone_id
+[ ] perfil ativo carrega corretamente
 [ ] criação de pedido funciona
+[ ] resumo do pedido responde sem quebrar o fluxo
 [ ] taxa de entrega por bairro aplica corretamente
-[ ] Pix é criado e confirmado por webhook
-[ ] dashboard mostra pedido live
+[ ] Pix é criado quando habilitado
+[ ] webhook do Mercado Pago confirma pagamento
+[ ] Dashboard mostra pedido live
+[ ] aliases estão funcionando
+[ ] estrutura inteligente do cardápio salva e recarrega corretamente
 [ ] cron de abandono executa sem erro
+[ ] cron de reset executa sem erro
 [ ] cron de avaliação executa sem erro
-[ ] logs são gerados em /logs
+[ ] logs são gerados na pasta logs
 
 =================================================================
-10) ERROS COMUNS QUE EU EVITO
+13) ERROS COMUNS QUE ESTE PROJETO COSTUMA SOFRER
 =================================================================
 
-- WEBHOOK_SECRET diferente entre provedor e API.
-- PUBLIC_BASE_URL com barra no final ou URL não pública.
-- CRED_ENCRYPTION_KEY diferente entre API e Dashboard.
-- instance_token vazio no restaurante.
-- REDIS_URL inválida (causa perda de robustez no fluxo concorrente).
-- SQL de migração não aplicado (campos faltando no banco).
+- WEBHOOK_SECRET diferente entre provedor e backend
+- PUBLIC_BASE_URL incorreta ou não pública
+- CRED_ENCRYPTION_KEY diferente entre API e Dashboard
+- instance_token vazio ou incorreto
+- REDIS_URL inválida, derrubando robustez do debounce e dedup
+- SQL de migração não aplicado, causando ausência de colunas/tabelas
+- regras_excecao_json malformado
+- perfil_ativo_id apontando para perfil inexistente
+- configuração visual do cardápio não persistida no perfil/restaurante esperado
+
+=================================================================
+14) RESUMO OPERACIONAL
+=================================================================
+
+O projeto atual está configurado para operação real com:
+- múltiplos tenants
+- múltiplos perfis por tenant
+- bot com IA guiada por tools
+- cardápio com preço validado no backend
+- painel de gestão operacional e logística
+
+Checklist mental correto para manutenção:
+- Tenant certo?
+- Perfil certo?
+- Cardápio certo?
+- Regras certas?
+- Backend validando tudo?
 
 Fim.

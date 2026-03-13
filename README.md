@@ -1,167 +1,132 @@
-# AI Atendimento SaaS
+# Delivery AI Ops Engine
 
-Eu desenvolvi este projeto para automatizar atendimento e pedidos via WhatsApp em operações de delivery (pizzaria, marmitaria e restaurante), mantendo controle real de cardápio, estoque, pagamento e entrega.
-
-A proposta é simples: reduzir gargalo de atendimento nos horários de pico sem transformar a conversa em um bot engessado. O cliente conversa naturalmente, e o sistema organiza tudo em fluxo operacional.
+### Atendimento de WhatsApp para Delivery em escala SaaS, com IA conversacional e backend deterministico para operacao real.
 
 ---
 
-## O que o projeto faz
+## Problema vs. Solucao
 
-- Recebe mensagens do WhatsApp via webhook
-- Interpreta intenção e itens com IA
-- Valida pedido com regras do cardápio (sem deixar a IA inventar preço)
-- Gerencia estado de conversa por cliente
-- Fecha pedido com entrega, taxa de bairro e pagamento
-- Gera Pix no WhatsApp (Mercado Pago) quando habilitado
-- Atualiza dashboard em tempo real para operação
-- Executa rotinas automáticas (carrinho abandonado, reset de estado, avaliação)
+### O caos
+Na sexta-feira a noite, o atendimento humano entra em colapso:
+- filas de mensagens no WhatsApp;
+- erros de pedido por pressa;
+- atrasos em checkout e pagamento;
+- perda de venda por falta de padrao;
+- dependencia total do suporte tecnico para incidentes operacionais.
 
----
+### A solucao
+Este projeto implementa um motor de atendimento com IA que escala operacao sem perder controle:
+- interpreta intencao do cliente em linguagem natural;
+- valida regras de negocio no backend (nao no modelo);
+- fecha checkout com fluxo sem friccao;
+- integra pagamento Pix e operacao em tempo real;
+- permite auto-recuperacao de sessao WhatsApp via QR Code.
 
-## Arquitetura atual
-
-Eu separei o sistema em dois blocos:
-
-### 1) Frontend/Admin
-- **Dashboard Streamlit**: `Dashboard/app.py`
-- É o painel operacional: pedidos live, cardápio, produtos, aliases, regras de exceção, motoboys, configurações e métricas.
-
-### 2) Backend
-- **API FastAPI**: pasta `API/`
-- Responsável por webhook, motor conversacional, persistência, pagamentos, validações, cron jobs e integrações.
-
-Serviços de apoio:
-- Supabase/Postgres (dados)
-- Redis (opcional, mas recomendado para buffer/dedup/lock/cache)
-- Uazapi (mensageria WhatsApp)
-- Groq (LLM e transcrição)
-- Mercado Pago (Pix)
+Resultado: mais throughput, menos erro humano e uma operacao previsivel mesmo em pico de demanda.
 
 ---
 
-## Estrutura real do repositório
+## Arquitetura Tecnica
+
+Stack principal:
+- Python: FastAPI no backend e Streamlit no dashboard operacional.
+- Supabase (Postgres): persistencia multi-tenant, pedidos, estados de conversa e configuracoes.
+- Groq: inferencia LLM para roteamento de intencao e condução conversacional.
+- WhatsApp API (uazapi): entrada e saida de mensagens, status de instancia e reconexao por QR.
+
+Componentes:
+- API: processamento de webhook, agente conversacional v2, validacao de checkout, pagamentos, cron jobs e endpoints administrativos.
+- Dashboard: operacao de pedidos, cardapio, regras de negocio, metricas e monitoramento de conexao WhatsApp.
+- Redis (recomendado): deduplicacao, debounce, locks e cache operacional.
+
+Principio de engenharia:
+**A IA interpreta. O backend decide.**
+
+---
+
+## Engineering Highlights
+
+### 1) Defensive AI
+- Blindagem contra prompt injection e tentativas de exfiltracao de regras internas.
+- Guardrails para evitar alucinacoes de desconto, cupom, brinde e promessas nao autorizadas.
+- Enforcement de argumentos de tools com sanitizacao e validacao de limites.
+
+### 2) Fuzzy Matching / Fallback
+- Reconhecimento tolerante de itens (aliases, variacoes de escrita e contexto).
+- Quando item nao existe ou esta indisponivel, o fluxo sugere alternativa valida sem quebrar a jornada.
+- Mantem consistencia com cardapio oficial e estoque real.
+
+### 3) Checkout Sem Friccao
+- Mudancas de item durante checkout sem reset de conversa.
+- Continuidade por contexto: carrinho, endereco, pagamento e confirmacao final.
+- Regras deterministicas para taxa, total e fechamento de pedido.
+
+### 4) Auto-Recuperacao de Sessao WhatsApp
+- Monitoramento de status de instancia.
+- Gatilho de reconexao quando necessario.
+- Geracao e entrega de QR Code em base64 para o proprio usuario final recuperar o bot sem acionar suporte.
+
+---
+
+## Estrutura do Repositorio
 
 ```text
 .
 ├─ API/
-│  ├─ main.py                  # Entrypoint FastAPI, middleware e rotas HTTP
-│  ├─ cerebro.py               # Núcleo de decisão conversacional e validação de pedido
-│  ├─ banco.py                 # Camada de acesso a dados, cron, Pix e utilitários de persistência
-│  ├─ zap.py                   # Webhook WhatsApp, debounce/buffer e envio de mensagens
-│  ├─ utils.py                 # Config, helpers, normalização de texto, Redis e logging base
-│  ├─ health_startup.py        # Diagnóstico de inicialização
-│  ├─ logging_setup.py         # Configuração de logger da API
-│  ├─ testaraudio.py           # Teste utilitário de áudio/transcrição
-│  ├─ teste_zap.py             # Teste utilitário de integração WhatsApp
-│  ├─ requirements.txt
-│  └─ Dockerfile
-│
+│  ├─ main.py
+│  ├─ banco.py
+│  ├─ zap.py
+│  ├─ cerebro_v2_agente.py
+│  ├─ checklist_agent_v2_regressions.py
+│  └─ ...
 ├─ Dashboard/
-│  ├─ app.py                   # Frontend Streamlit (painel de gestão)
-│  ├─ requirements.txt
-│  └─ Dockerfile
-│
-├─ docker-compose.yml
-├─ logging_setup.py            # Setup de logs compartilhado na raiz
-├─ Simulador_zap.py            # Simulador/apoio de testes de mensagens
-├─ README.md
+│  ├─ app.py
+│  └─ ...
 ├─ CONFIGURACAO_DO_BOT.txt
 ├─ DOCUMENTACAO_COMPLETA_DO_CODIGO.txt
 ├─ SECURITY_NEXT_STEPS.md
-├─ Fases.txt
-├─ tools/
-├─ logs/                       # Logs rotacionados da API e do Dashboard
-│
-├─ restaurantes_rows.sql
-├─ supabase_entregas.sql
-├─ supabase_loja_faq.sql
-├─ supabase_motoboys.sql
-├─ supabase_payments.sql
-├─ supabase_pedidos_itens.sql
-└─ supabase_pedidos_migration.sql
+└─ docker-compose.yml
 ```
 
 ---
 
-## Fluxo resumido de ponta a ponta
+## Operacao Rapida
 
-1. O cliente manda mensagem no WhatsApp.
-2. `API/zap.py` recebe o webhook e agrega mensagens curtas com debounce.
-3. `API/cerebro.py` interpreta intenção e extrai slots do pedido.
-4. `API/banco.py` valida no cardápio oficial, aplica regras, persiste pedido e itens.
-5. Se Pix estiver ativo, o sistema cria cobrança e aguarda confirmação do webhook de pagamento.
-6. O Dashboard acompanha status e execução operacional em tempo real.
-
----
-
-## Endpoints principais da API
-
-- `POST /webhook`
-- `POST /webhook/mercadopago`
-- `GET /payments/qr/{payment_id}.png`
-- `GET /health`
-- `POST /admin/cache/invalidate`
-- `POST /admin/chat/toggle_pause`
-- `GET /cron/abandoned-carts`
-- `GET /cron/reset-states`
-- `GET /cron/avaliar`
-
----
-
-## Diferenciais de implementação
-
-- **Multi-tenant de verdade**: cada restaurante tem configuração, cardápio e operação isolados.
-- **Regras de exceção por JSON**: adapto facilmente cenários como quentinha, meio a meio, adicionais e borda.
-- **Aliases de produto**: melhora reconhecimento de linguagem natural sem depender de nome exato.
-- **Borda grátis configurável**: regra operacional editável por restaurante.
-- **IA com guardrails**: a IA sugere; o backend valida preço/estoque/consistência.
-- **Resiliência operacional**: debounce, deduplicação, lock e cache via Redis.
-
----
-
-## Como rodar
-
-### Pré-requisitos
-- Python 3.10+
-- Projeto Supabase configurado
-- Chave da Groq
-- Instância Uazapi
-- (Recomendado) Redis
-
-### Variáveis mínimas
-- `SUPABASE_URL`
-- `SUPABASE_KEY`
-- `GROQ_API_KEY`
-- `WEBHOOK_SECRET`
-- `PUBLIC_BASE_URL`
-
-### Subir com Docker
+### 1) API
 ```bash
-docker-compose up --build -d
-```
-
-### Rodar local (sem Docker)
-```bash
-# API
 cd API
 pip install -r requirements.txt
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
 
-# Dashboard (novo terminal)
+### 2) Dashboard
+```bash
 cd Dashboard
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
+### 3) Variaveis essenciais
+- SUPABASE_URL
+- SUPABASE_KEY
+- GROQ_API_KEY
+- WEBHOOK_SECRET
+- PUBLIC_BASE_URL
+- CACHE_INVALIDATE_URL
+- CACHE_INVALIDATE_TOKEN
+
 ---
 
-## Status do projeto
+## Showcase Disclaimer (Obrigatorio)
 
-O projeto está funcional e em uso de lapidação contínua: estou refinando regras de negócio, observabilidade e experiência operacional do painel.
+Este repositorio e um **showcase arquitetural e tecnico**.
+
+Ele demonstra design de sistema, padroes de engenharia e recortes seguros de implementacao. O motor principal de negocio, componentes proprietarios e partes criticas de producao pertencem a um **SaaS de codigo fechado**.
+
+Nao representa o produto comercial completo nem contem todos os ativos internos utilizados em ambiente real.
 
 ---
 
-## Autor
+## Licenciamento e Uso
 
-Projeto pessoal desenvolvido por mim, com foco em arquitetura aplicada, integração de serviços reais e operação de delivery no mundo real.
+Use este repositorio como referencia de arquitetura, boas praticas e estudo de integracao entre IA conversacional e operacao de delivery.
