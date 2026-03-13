@@ -3,6 +3,8 @@
 ### Atendimento de WhatsApp para Delivery em escala SaaS, com IA conversacional e backend deterministico para operacao real.
 
 **(Profissional/SaaS):** O Delivery AI Ops Engine e uma inteligencia artificial autonoma projetada para assumir 100% do atendimento de delivery via WhatsApp. O sistema elimina gargalos em horarios de pico, aplica regras de negocio em tempo real e recupera vendas com estrategias de upsell guiadas por contexto.
+<img width="1368" height="1233" alt="image" src="https://github.com/user-attachments/assets/2df49dcf-5592-4fc0-8cd2-e292b79ceee0" />
+
 
 ---
 
