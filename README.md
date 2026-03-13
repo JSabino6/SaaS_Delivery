@@ -114,7 +114,6 @@ Sugestao de leitura para avaliadores:
 │  └─ _templates/
 ├─ CONFIGURACAO_DO_BOT.txt
 ├─ DOCUMENTACAO_COMPLETA_DO_CODIGO.txt
-├─ SECURITY_NEXT_STEPS.md
 ├─ PORTFOLIO_SHOWCASE.md
 └─ docker-compose.yml
 ```
