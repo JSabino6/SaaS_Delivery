@@ -45,7 +45,7 @@ with check (
 );
 ```
 
-## 2) Autenticação do Dashboard
+## 2) Autenticação do Dashboard 
 
 **Hoje:** login por `usuario/senha` em tabela, e admin hardcoded (já movido para `.env`).
 

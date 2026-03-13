@@ -19,7 +19,7 @@ Este adendo registra os ultimos ajustes de engenharia aplicados no fluxo WhatsAp
 3) Defensive AI (camada conversacional)
 - Guardrails contra prompt injection e vazamento de contexto interno.
 - Regras de seguranca para bloquear concessao alucinada de desconto, cupom, brinde ou cortesia.
-- Sanitizacao/normalizacao de argumentos de tools no backend antes da execucao.
+- Sanitizacao/normalizacao de argumentos de tools no backend antes da execucao. 
 
 4) Publicacao de snippets seguros (repositorio publico)
 - Preferir recortes autocontidos e orientados a padrao de engenharia.

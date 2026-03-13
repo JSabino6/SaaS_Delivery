@@ -29,7 +29,7 @@ class FakeAgent:
         if "retirar" in lowered or "remover" in lowered:
             return {"action": "remove_item", "message": "Item removido do carrinho."}
         if "pagar" in lowered or "checkout" in lowered:
-            return {"action": "confirm_order", "message": "Vamos para confirmacao."}
+            return {"action": "confirm_order", "message": "Vamos para confirmacao."} 
         return {"action": "ask_clarification", "message": "Pode detalhar seu pedido?"}
 
 

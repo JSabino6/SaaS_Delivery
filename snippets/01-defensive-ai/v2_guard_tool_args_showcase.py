@@ -27,7 +27,7 @@ TOOL_REQUIRED_FIELDS = {
 }
 
 
-TOOL_ALLOWED_FIELDS = {
+TOOL_ALLOWED_FIELDS = { 
     "add_item": {"sku", "qty", "note"},
     "remove_item": {"sku"},
     "set_delivery_address": {"street", "number", "district", "complement"},

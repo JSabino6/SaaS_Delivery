@@ -64,7 +64,7 @@ Fluxo macro:
 ---
 
 ## Engineering Highlights
-
+ 
 ### 1) Defensive AI
 - Blindagem contra prompt injection e tentativas de exfiltracao de regras internas.
 - Guardrails para evitar alucinacoes de desconto, cupom, brinde e promessas nao autorizadas.

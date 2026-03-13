@@ -25,7 +25,7 @@ Arquivos de showcase incluidos:
 2. Trocar nomes reais por placeholders (`TENANT_ID_EXAMPLE`, `INSTANCE_TOKEN_EXAMPLE`).
 3. Manter snippets autocontidos e com dependencia minima.
 4. Incluir contexto de entrada/saida no README local do snippet.
-5. Nao publicar regras de negocio proprietarias completas.
+5. Nao publicar regras de negocio proprietarias completas. 
 
 ## Header recomendado para cada snippet
 

@@ -28,7 +28,7 @@ class CheckoutSession:
             self.state = CheckoutState.CART_READY
 
     def confirm_address(self) -> None:
-        if self.state != CheckoutState.CART_READY:
+        if self.state != CheckoutState.CART_READY: 
             raise ValueError("Endereco so pode ser confirmado com carrinho pronto.")
         self.state = CheckoutState.ADDRESS_CONFIRMED
 
