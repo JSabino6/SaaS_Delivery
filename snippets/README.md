@@ -19,7 +19,7 @@ Arquivos de showcase incluidos:
 - `02-regression-tests/agent_v2_regression_showcase.py`
 - `03-checkout-flow/checkout_transition_showcase.py`
 
-## Regras de publicacao
+## Regras de publicacao 
 
 1. Remover tokens, URLs privadas, IDs de cliente e qualquer dado sensivel.
 2. Trocar nomes reais por placeholders (`TENANT_ID_EXAMPLE`, `INSTANCE_TOKEN_EXAMPLE`).

@@ -19,8 +19,8 @@ class Scenario:
     expected_contains: str
 
 
-class FakeAgent:
-    """Stub simplificado para demonstrar o harness de regressao."""
+class FakeAgent: 
+    """Stub simplificado para demonstrar o harness de regressao.""" 
 
     def run(self, text: str) -> Dict[str, str]:
         lowered = text.lower()

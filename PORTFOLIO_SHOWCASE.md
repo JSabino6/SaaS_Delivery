@@ -23,7 +23,7 @@ Este guia organiza o repositorio para avaliacao tecnica em entrevistas, com foco
 4. Seguranca: bloqueio de parametros invalidos e contratos estritos por tool.
 5. Resultado: operacao escalavel sem depender de atendimento humano 1:1.
 
-## Limite de exposicao
+## Limite de exposicao 
  
 Este repositório possui partes operacionais internas. Para portfolio publico, priorize a pasta `snippets/` e a documentacao.
 

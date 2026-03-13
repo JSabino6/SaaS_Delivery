@@ -80,3 +80,4 @@ Se quiser manter tabela `restaurantes` por enquanto:
 - Rotacionar tokens/keys periodicamente.
 - Nunca logar tokens inteiros.
 - Garantir que `.env` não vá para git.
+ 

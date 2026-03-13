@@ -82,7 +82,7 @@ Fluxo macro:
 
 ### 4) Auto-Recuperacao de Sessao WhatsApp
 - Monitoramento de status de instancia.
-- Gatilho de reconexao quando necessario.
+- Gatilho de reconexao quando necessario. 
 - Geracao e entrega de QR Code em base64 para o proprio usuario final recuperar o bot sem acionar suporte.
 
 ---

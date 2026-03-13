@@ -21,7 +21,7 @@ Este adendo registra os ultimos ajustes de engenharia aplicados no fluxo WhatsAp
 - Regras de seguranca para bloquear concessao alucinada de desconto, cupom, brinde ou cortesia.
 - Sanitizacao/normalizacao de argumentos de tools no backend antes da execucao. 
 
-4) Publicacao de snippets seguros (repositorio publico)
+4) Publicacao de snippets seguros (repositorio publico) 
 - Preferir recortes autocontidos e orientados a padrao de engenharia.
 - Priorizar funcoes de seguranca e testes de regressao.
 - Sempre remover credenciais, identificadores de clientes e detalhes operacionais proprietarios.

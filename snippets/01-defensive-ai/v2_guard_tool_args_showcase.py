@@ -20,7 +20,7 @@ ALLOWED_TOOLS = {
 
 TOOL_REQUIRED_FIELDS = {
     "add_item": ("sku", "qty"),
-    "remove_item": ("sku",),
+    "remove_item": ("sku",), 
     "set_delivery_address": ("street", "number", "district"),
     "set_payment_method": ("method",),
     "confirm_order": tuple(),

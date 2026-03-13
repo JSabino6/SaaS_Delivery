@@ -21,7 +21,7 @@ class CheckoutState(str, Enum):
 
 @dataclass
 class CheckoutSession:
-    state: CheckoutState = CheckoutState.BROWSING
+    state: CheckoutState = CheckoutState.BROWSING 
 
     def add_item(self) -> None:
         if self.state == CheckoutState.BROWSING:
