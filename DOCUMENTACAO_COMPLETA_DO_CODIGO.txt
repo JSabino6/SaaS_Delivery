@@ -1,35 +1,81 @@
 DOCUMENTAÇÃO COMPLETA DO CÓDIGO (PROJETO ATUAL)
-Data: 2026-03-02
+Data: 2026-03-09
 
-Esta é a documentação técnica do meu projeto de atendimento para delivery via WhatsApp.
-Escrevi este material para facilitar manutenção, evolução e handoff sem depender de contexto externo.
+=================================================================
+ADENDO TECNICO - 2026-03-13
+=================================================================
+
+Este adendo registra os ultimos ajustes de engenharia aplicados no fluxo WhatsApp e na camada de defesa do agente.
+
+1) Status de instancia WhatsApp (uazapi)
+- Parser de status atualizado para lidar com payloads aninhados e evitar falso positivo de conectado.
+- Ajuste importante: quando campo status vem como objeto (ex.: {connected:false}), a deteccao textual nao deve classificar como connected.
+- Suporte de consulta a rota canonica /instance/status para compatibilidade com a OpenAPI atual.
+
+2) QR Code de reconexao
+- Parser de QR atualizado para capturar qrcode em multiplos niveis do payload (raiz, data, instance).
+- Fluxo de auto-recuperacao para usuario final: endpoint administrativo gera resposta com status + qr_code (base64), consumida no Dashboard.
+
+3) Defensive AI (camada conversacional)
+- Guardrails contra prompt injection e vazamento de contexto interno.
+- Regras de seguranca para bloquear concessao alucinada de desconto, cupom, brinde ou cortesia.
+- Sanitizacao/normalizacao de argumentos de tools no backend antes da execucao.
+
+4) Publicacao de snippets seguros (repositorio publico)
+- Preferir recortes autocontidos e orientados a padrao de engenharia.
+- Priorizar funcoes de seguranca e testes de regressao.
+- Sempre remover credenciais, identificadores de clientes e detalhes operacionais proprietarios.
+
+Snippets recomendados para showcase:
+- Script de regressao do agente (checklist_agent_v2_regressions.py)
+- Funcao de guarda de argumentos de tools (_v2_guard_tool_args)
+
+Esta é a documentação técnica consolidada do projeto no estado atual.
+Ela reflete a arquitetura multi-tenant com perfis por restaurante, o motor conversacional v2 ativo, o Dashboard Streamlit com gestão visual de cardápio e a política central do sistema: a IA interpreta, mas o backend valida e decide.
 
 =================================================================
 1) VISÃO GERAL DO SISTEMA
 =================================================================
 
-Meu sistema é um SaaS multi-tenant para restaurantes.
-Ele recebe mensagens do WhatsApp, interpreta pedido com IA, valida no backend, persiste no banco, gera Pix quando necessário e exibe operação no Dashboard.
+O projeto é um SaaS multi-tenant para restaurantes com atendimento via WhatsApp.
+Cada restaurante opera de forma isolada, com configurações próprias, cardápio próprio, regras próprias e, agora, suporte a perfis operacionais por restaurante.
+
+Objetivos do sistema:
+- Receber mensagens do WhatsApp
+- Entender intenção e itens do pedido com IA
+- Validar preço, estoque, checkout e regras no backend
+- Persistir estado de conversa e pedido
+- Gerar Pix quando aplicável
+- Exibir operação em tempo real no Dashboard
+- Permitir gestão de cardápio, aliases, motoboys, perfis e regras estruturadas
 
 Stack principal:
 - Backend: FastAPI
 - Frontend: Streamlit
 - Banco: Supabase/Postgres
 - Mensageria: Uazapi
-- IA: Groq (chat e transcrição)
-- Cache/concorrência: Redis (opcional, recomendado)
+- IA: Groq
+- Cache e coordenação: Redis (opcional, recomendado)
+- Pagamento: Mercado Pago
+
+Princípio central da arquitetura:
+- A IA interpreta o que o cliente quis dizer.
+- O backend decide se aquilo é válido, calcula preço, reserva estoque e fecha o pedido.
 
 =================================================================
-2) ESTRUTURA E RESPONSABILIDADE DE CADA ARQUIVO
+2) ARQUITETURA ATUAL
 =================================================================
 
-2.1 API/main.py
+2.1 Camada HTTP
+Arquivo principal: API/main.py
+
+Responsabilidades:
 - Inicializa FastAPI
-- Executa startup diagnostics
-- Aplica middleware de request_id e log de requisição
-- Expõe rotas de webhook, cron, health e rotas administrativas
+- Executa diagnóstico de startup
+- Aplica middleware de request_id e logging por requisição
+- Expõe rotas públicas, administrativas e cron
 
-Rotas registradas:
+Rotas atuais:
 - GET  /payments/qr/{payment_id}.png
 - POST /webhook/mercadopago
 - GET  /health
@@ -40,165 +86,452 @@ Rotas registradas:
 - GET  /cron/avaliar
 - POST /webhook
 
-2.2 API/zap.py
-- Recebe evento bruto do provedor
-- Faz validação/autenticação do webhook
-- Extrai texto, áudio e metadados de mensagem
-- Aplica debounce e buffer por conversa
-- Executa deduplicação e lock quando Redis está ativo
-- Encaminha processamento final para a camada conversacional
-- Faz envio de mensagens de saída para Uazapi
+2.2 Camada de mensageria
+Arquivo principal: API/zap.py
 
-2.3 API/cerebro.py
-- É o núcleo do motor conversacional
-- Faz classificação de intenção (quando habilitado)
-- Faz slot filling para extrair dados estruturados do pedido
-- Aplica regras de negócio na evolução do checkout
-- Valida regras de exceção do carrinho
-- Gera respostas coerentes com estado e contexto
-- Controla fluxos de pagamento/endereço/entrega
+Responsabilidades:
+- Recebe eventos do WhatsApp via webhook
+- Valida segredos e limites de payload
+- Extrai texto, mídia e metadados da conversa
+- Faz debounce e agregação de mensagens curtas
+- Usa Redis para deduplicação, lock e rate limit quando disponível
+- Faz envio de mensagens e presença para Uazapi
+- Encaminha o processamento final para o motor conversacional ativo
 
-2.4 API/banco.py
-- Centraliza acesso ao Supabase
-- Busca dados de restaurante e cardápio estruturado
-- Persiste pedido, estado de conversa e itens
-- Atualiza estoque via RPC
-- Implementa webhooks de pagamento e rotinas de cron
-- Implementa healthcheck e utilitários administrativos
+Motor ativo observado no código:
+- zap.py importa e usa API/cerebro_v2_agente.py
+- O arquivo API/cerebro.py ainda existe no repositório como legado e referência histórica, mas o fluxo principal atual usa o agente v2
 
-2.5 API/utils.py
-- Carrega variáveis de ambiente
-- Define guardrails de limite e timeout
-- Fornece normalização textual e matching
-- Encapsula helpers de Redis e execução bloqueante controlada
-- Configura logger base da API
+2.3 Camada conversacional
+Arquivo principal ativo: API/cerebro_v2_agente.py
+Arquivo legado ainda presente: API/cerebro.py
 
-2.6 Dashboard/app.py
-- Implementa login e perfil (admin, cliente, motoboy)
-- Renderiza painel live de pedidos
-- Permite gestão de cardápio/produtos/aliases/regras
-- Permite configurações operacionais e integrações
-- Exibe métricas e histórico
+Responsabilidades do agente v2:
+- Define schema de tools para o LLM
+- Monta prompt de sistema com personalização do restaurante
+- Usa payload estruturado com pedido, estado, dados parciais e tenant_capabilities
+- Executa tools de carrinho, FAQ e checkout
+- Faz fallback defensivo quando a API da Groq devolve erro de validação de tool call
+- Responde localmente alguns casos diretos, como resumo do pedido
 
-2.7 Arquivos de SQL na raiz
-- Definem migrations e tabelas auxiliares para pedidos, pagamentos, motoboys, FAQ e entregas.
+Tools expostas ao modelo no v2:
+- adicionar_ao_carrinho
+- remover_do_carrinho
+- atualizar_observacao
+- solicitar_informacao_em_falta
+- faq_query
+- responder_faq
+- avancar_para_checkout
+- confirmar_dados_checkout
+- finalizar_pedido
+
+Características importantes do agente v2:
+- Prompt estruturado por restaurante com blocos TOM DE VOZ, SAUDACAO, UPSELL, REGRAS POSITIVAS e REGRAS NEGATIVAS
+- tenant_capabilities calculado por restaurante/perfil
+- Proibição explícita de cálculo de preço, taxa, estoque ou desconto no modelo
+- Slots de continuidade por estado: tamanho, borda, metades, seleções de produto, endereço, pagamento etc.
+- Resumo de pedido tratado no backend sem depender da IA quando detectado
+
+2.4 Camada de dados
+Arquivo principal: API/banco.py
+
+Responsabilidades:
+- Cria cliente Supabase
+- Carrega dados do restaurante e do perfil ativo
+- Carrega cardápio estruturado, categorias, preços, estoque e aliases
+- Persiste pedido e itens do pedido
+- Faz integração com Mercado Pago
+- Implementa cron jobs, healthcheck e endpoints administrativos
+- Atualiza estoque por RPC segura no banco
+
+2.5 Camada de utilidades
+Arquivo principal: API/utils.py
+
+Responsabilidades:
+- Carrega .env da raiz do workspace e da pasta API
+- Centraliza variáveis de ambiente e guardrails
+- Fornece helpers de normalização textual, formatação monetária e matching
+- Abstrai Redis e execução bloqueante controlada
+- Expõe configurações de debounce, rate limit, timeout e modelos
+
+2.6 Dashboard administrativo
+Arquivo principal: Dashboard/app.py
+
+Responsabilidades:
+- Login de cliente, admin e motoboy
+- Gestão de perfis por restaurante
+- Gestão de cardápio, aliases e estrutura inteligente do cardápio
+- Visualização de pedidos, métricas e motoboys
+- Configurações operacionais do restaurante
+- Criptografia e gestão de tokens sensíveis
 
 =================================================================
-3) MODELO DE DADOS (RESUMO PRÁTICO)
+3) MODELO MULTI-TENANT ATUAL
 =================================================================
 
-Tabela restaurantes:
-- Identidade do restaurante e configuração operacional
-- Campos de integração (instance_name, instance_token, phone_id)
-- Campos de IA e operação (system_prompt, bot_ativo, regras_excecao_json, etc.)
-- Campos de Pix (pix_whatsapp_enabled, pix_provider, mp_access_token_enc)
+O projeto é multi-tenant em dois níveis:
 
-Tabela produtos:
-- Cardápio oficial por restaurante
-- Preço, categoria, disponibilidade, estoque e aliases
+Nível 1: restaurante
+- Cada restaurante tem sua própria linha em restaurantes
+- Cada restaurante tem seu phone_id, credenciais, configuração operacional e integração própria
+- Produtos, bairros, pedidos, motoboys e entregas são vinculados por restaurante_id
 
-Tabela bairros:
-- Taxa de entrega por bairro (quando aplicável)
+Nível 2: perfis dentro do restaurante
+- O projeto usa restaurante_perfis + restaurantes.perfil_ativo_id
+- Um restaurante pode ter múltiplos perfis de operação
+- O perfil ativo sobrescreve parte da configuração base do restaurante
+- O cardápio e aliases podem ser escopados por perfil_id
+- Novos pedidos persistem perfil_id e perfil_nome_snapshot
 
-Tabela pedidos:
-- Estado do pedido e dados do carrinho
-- Campos de pagamento e confirmação
+Campos com override por perfil observados no código:
+- system_prompt
+- regras_excecao_json
+- bot_ativo
+- mensagem_fechado
+- taxa_entrega_padrao
+- taxa_unica_ativa
+- borda_gratis_automatica_ativa
+- borda_gratis_padrao_nome
+- endereco_loja
+- telefone_loja
+- horario_loja
 
-Tabelas conversas e clientes_estado:
-- Histórico textual e estado da FSM por cliente
-
-Tabelas motoboys e entregas:
-- Controle da logística de entrega
+Regra operacional importante:
+- O backend sempre carrega o restaurante base, encontra o perfil ativo, faz merge dos overrides e só então monta o contexto final do tenant.
 
 =================================================================
-4) FSM E FLUXO DE CONVERSA
+4) MODELO DE DADOS PRÁTICO
 =================================================================
 
-O bot não trabalha como árvore fixa de menu.
-Ele mantém estado de conversa e evolui de forma guiada por contexto.
+4.1 Tabela restaurantes
+Função:
+- Identidade do tenant
+- Credenciais de integração com Uazapi
+- Configuração global do bot e da operação
 
-Estados típicos de operação:
-- INICIO (atendimento aberto)
+Campos importantes observados:
+- id
+- nome
+- usuario
+- senha
+- phone_id
+- instance_name
+- instance_token
+- bot_ativo
+- system_prompt
+- mensagem_fechado
+- regras_excecao_json
+- taxa_entrega_padrao
+- taxa_unica_ativa
+- borda_gratis_automatica_ativa
+- borda_gratis_padrao_nome
+- endereco_loja
+- telefone_loja
+- horario_loja
+- pix_whatsapp_enabled
+- pix_provider
+- mp_access_token_enc
+- perfil_ativo_id
+
+4.2 Tabela restaurante_perfis
+Função:
+- Representar variantes operacionais por restaurante
+- Permitir múltiplos perfis com nomes, ordem e escopo próprio de cardápio/configuração
+
+4.3 Tabela produtos
+Função:
+- Cardápio oficial do restaurante
+- Fonte oficial de preço base
+
+Campos observados:
+- id
+- restaurante_id
+- perfil_id
+- nome
+- descricao
+- preco
+- categoria
+- estoque
+- disponivel
+- volume_ml
+
+4.4 Tabela produtos_aliases
+Função:
+- Melhorar matching textual sem alterar o nome oficial do produto
+- Escopo por restaurante e também por perfil quando aplicável
+
+4.5 Tabela bairros
+Função:
+- Taxa de entrega por bairro quando não há taxa única
+
+4.6 Tabela pedidos
+Função:
+- Carrinho, checkout, status operacional e status de pagamento
+
+Campos relevantes no fluxo:
+- carrinho_json
+- resumo_pedido
+- total_valor
+- status
+- forma_pagamento
+- tipo_entrega
+- endereco_completo
+- payment_provider
+- payment_id
+- payment_status
+- payment_qr_code
+- payment_ticket_url
+- perfil_id
+- perfil_nome_snapshot
+- needs_human
+
+4.7 Tabela clientes_estado
+Função:
+- Persistir FSM e dados parciais por conversa
+
+Observação operacional importante:
+- No projeto atual, clientes_estado usa restaurante_id com o valor do phone_id do tenant em alguns fluxos de webhook/admin. Isso é parte do modelo atual e precisa ser considerado em manutenção e integrações.
+
+4.8 Tabelas motoboys e entregas
+Função:
+- Gestão logística de entregas e histórico por entregador
+
+4.9 Tabela metricas_gastos_restaurante
+Função:
+- Acumular métricas operacionais e custo de IA por período
+
+=================================================================
+5) CARDÁPIO E REGRAS ESTRUTURADAS
+=================================================================
+
+5.1 Cardápio oficial
+- O backend monta texto_para_ia, dict_precos, dict_estoque, dict_categorias e dict_aliases
+- Esse cardápio é carregado já filtrado por perfil quando houver perfil ativo
+- O preço oficial simples vem da tabela produtos
+
+5.2 Estrutura inteligente do cardápio
+O projeto evoluiu para um modelo mais robusto de regras estruturadas por tenant.
+A configuração fica em regras_excecao_json e hoje pode ser editada visualmente no Dashboard.
+
+Dois grupos principais de estrutura:
+
+A) grupos_opcoes
+- Serve para produtos compostos por grupo de escolha
+- Exemplos: proteína, acompanhamentos, bebida, complementos
+- Permite min, max e lista de opções válidas
+- O backend usa isso para validar slot filling e pedir faltantes
+
+B) secoes_configuraveis
+- Serve para produtos com preço e composição mais avançados
+- É o motor atual para produtos configuráveis multi-tenant
+- Permite definir seções, tipos e políticas de precificação no backend
+
+Tipos visuais já suportados no Dashboard:
+- choice_single
+- choice_multi
+- variant_selector
+- addon_group
+
+Modos de preço já suportados no Dashboard/backend:
+- sum_selected
+- replace_base_price
+- largest_selected
+- fixed_delta
+- no_charge
+
+Exemplo de uso prático:
+- Pizza Grande com seções sabores, borda, massa e adicionais
+- O backend usa as opções cadastradas e calcula o preço final sem depender da IA
+
+5.3 Local da gestão no Dashboard
+No estado atual do projeto, a gestão visual dessa estrutura fica na área Gestão de Cardápio e não mais em Configurações.
+Isso foi feito para alinhar a operação do restaurante: cardápio e lógica do cardápio no mesmo lugar.
+
+=================================================================
+6) PROMPT E PERSONALIZAÇÃO DO BOT
+=================================================================
+
+O system_prompt do restaurante/perfil é estruturado por blocos, não por texto solto apenas.
+
+Blocos suportados:
+- TOM DE VOZ
+- SAUDACAO
+- UPSELL
+- REGRAS POSITIVAS
+- REGRAS NEGATIVAS
+
+Fluxo atual:
+- O Dashboard monta esses blocos
+- O backend v2 faz parse desses blocos
+- O contexto do restaurante é reformatado e embutido no system prompt final
+
+Isso permite personalizar:
+- estilo de fala
+- saudação inicial
+- estratégia comercial de upsell
+- instruções obrigatórias do que fazer
+- instruções obrigatórias do que não fazer
+
+=================================================================
+7) FSM E FLUXO DE CONVERSA
+=================================================================
+
+O sistema não é menu de árvore fixa.
+Ele trabalha com estado + interpretação + validação de backend.
+
+Estados observados no fluxo atual:
+- INICIO
+- AGUARDANDO_MAIS_ALGO
 - AGUARDANDO_ENDERECO
 - AGUARDANDO_PAGAMENTO
 - AGUARDANDO_PAGAMENTO_PIX
 - AGUARDANDO_AVALIACAO_POS_VENDA
+- CONFIRMAR_PEDIDO_DE_SEMPRE
 
-Princípio que eu adotei:
-- A IA sugere entendimento
-- O backend decide e valida
+Slots tratados no fluxo do agente v2:
+- item
+- quantidade
+- tamanho
+- borda
+- metades
+- selecoes_produto
+- endereco
+- bairro
+- tipo_entrega
+- metodo_pagamento
+- troco_para
+- confirmacao_final
 
-=================================================================
-5) REGRAS DE NEGÓCIO IMPORTANTES
-=================================================================
-
-5.1 Preço e estoque
-- O preço oficial sempre vem do banco.
-- A IA não define valor final.
-- Estoque é alterado via função segura no banco para evitar inconsistência.
-
-5.2 Regras de exceção
-- Uso JSON por restaurante para adaptar casos como:
-  - limite de misturas em quentinha
-  - restrição de combinações
-  - regras de meio a meio
-  - borda grátis em pizzaria
-
-5.3 Aliases
-- Produtos podem ter aliases para melhorar reconhecimento de linguagem natural.
-- Isso reduz erro de interpretação por variação de escrita do cliente.
-
-5.4 Pagamento Pix
-- Se ativo, o pedido pode aguardar confirmação de pagamento antes da confirmação final.
-- Webhook do Mercado Pago atualiza status de forma segura.
+Princípios aplicados:
+- O cliente pode mudar de assunto durante checkout
+- O pedido pode sofrer alteração enquanto ainda está aberto
+- O sistema preserva contexto parcial e retoma depois
+- Alguns casos são respondidos localmente sem depender da IA, como resumo do pedido atual
 
 =================================================================
-6) REDIS NO PROJETO
+8) PREÇO, ESTOQUE E REGRAS DE NEGÓCIO
 =================================================================
 
-Quando Redis está ativo, ganho:
-- Buffer/debounce robusto
-- Deduplicação de evento (idempotência)
-- Locks distribuídos (menos corrida em concorrência)
-- Rate limiting por conversa
-- Cache de dados de restaurante
+8.1 Regra central
+- O backend decide preço.
+- A IA não calcula preço final, taxa, estoque ou desconto.
 
-Sem Redis o sistema roda, mas perde robustez em carga.
+8.2 Preço simples
+- Vem direto da tabela produtos
 
-=================================================================
-7) CRONS E AUTOMAÇÕES
-=================================================================
+8.3 Preço configurável
+- Vem de secoes_configuraveis em regras_excecao_json
+- O backend valida escolhas e aplica a política de preço cadastrada
+- O carrinho persiste pricing_context para auditoria
 
-7.1 /cron/abandoned-carts
-- Envia lembrete e/ou encerra carrinho abandonado conforme janela configurada.
+8.4 Estoque
+- Atualizado por RPC segura movimentar_estoque_seguro
+- O backend faz reserva/desreserva conforme mutações no carrinho
 
-7.2 /cron/reset-states
-- Limpa estados presos por inatividade.
-
-7.3 /cron/avaliar
-- Dispara pedido de avaliação após finalização.
-
-Todos os endpoints de cron devem ser protegidos com CRON_SECRET.
+8.5 Meio a meio e produtos configuráveis
+- O sistema já possui lógica de pizza meio a meio e foi evoluído para consultar regras configuráveis por tamanho quando existirem
+- Quando o tenant configurar Pizza Grande, Pizza Média ou Pizza Pequena em secoes_configuraveis, o backend pode usar essa estrutura como fonte principal de preço
 
 =================================================================
-8) SEGURANÇA E BOAS PRÁTICAS APLICADAS
+9) PAGAMENTO E CHECKOUT
 =================================================================
 
-- Segredos via ambiente
-- Tokens sensíveis criptografados (Fernet)
-- Verificação de webhook por segredo
-- Guardrails de tamanho de payload e texto
-- Middleware de request_id para rastreabilidade
-- Logs por serviço (API e Dashboard)
+Métodos atualmente tratados:
+- Pix
+- Dinheiro
+- Cartão
+
+Pix no projeto:
+- Se pix_whatsapp_enabled estiver ativo e o token do Mercado Pago estiver válido, o backend pode gerar QR code e link
+- O webhook do Mercado Pago confirma pagamento depois
+- Se o tenant não tiver configuração pronta para QR no WhatsApp, o fluxo cai para Pix manual na entrega/retirada
+
+Checkout flexível no v2:
+- O cliente pode informar endereço e pagamento em qualquer ordem
+- O bot pode iniciar checkout sem perder alteração de carrinho no meio
+- O backend só finaliza quando dados mínimos estiverem completos
 
 =================================================================
-9) COMO EU SUBO O AMBIENTE
+10) DASHBOARD ATUAL
 =================================================================
 
-9.1 Com Docker
+Papéis suportados:
+- admin
+- client
+- motoboy
+
+Áreas principais observadas:
+- Pedidos
+- Métricas
+- Gestão de Cardápio
+- Configurações
+- Motoboys
+
+Funções importantes do Dashboard:
+- Gestão de perfis e perfil ativo
+- Gestão de produtos por perfil
+- Gestão de aliases
+- Gestão visual da estrutura inteligente do cardápio
+- Configurações operacionais do restaurante
+- Pix e integração
+- Operação de motoboys e entregas
+- Painel live de pedidos
+
+=================================================================
+11) REDIS NO PROJETO
+=================================================================
+
+Quando Redis está disponível, o sistema usa:
+- buffer de mensagens
+- debounce de conversa
+- deduplicação de eventos
+- rate limiting
+- locks distribuídos
+- cache de dados do restaurante
+
+Sem Redis:
+- O sistema roda
+- Existem fallbacks em memória para parte do buffer
+- A robustez concorrente diminui
+
+=================================================================
+12) CRON JOBS E AUTOMAÇÕES
+=================================================================
+
+12.1 /cron/abandoned-carts
+- Lembra ou encerra carrinhos abandonados conforme a janela configurada
+- Pode devolver estoque quando houver cleanup
+
+12.2 /cron/reset-states
+- Reseta estados presos por inatividade
+
+12.3 /cron/avaliar
+- Dispara mensagens de avaliação pós-venda
+
+Todos devem ser protegidos com CRON_SECRET.
+
+=================================================================
+13) SEGURANÇA E PRÁTICAS OPERACIONAIS
+=================================================================
+
+Práticas observadas no código:
+- Segredos por variáveis de ambiente
+- Token sensível criptografado com Fernet
+- request_id por requisição HTTP
+- Guardrails de tamanho de webhook e texto
+- Logs na API e no Dashboard
+- Rate limit e deduplicação quando Redis está ativo
+- Retry defensivo em integração com Uazapi
+- Fallback sem tools quando a Groq devolve erro de validação de tool call
+
+=================================================================
+14) COMO SUBIR O AMBIENTE
+=================================================================
+
+14.1 Docker
 - docker-compose up --build -d
 
-9.2 Manual
+14.2 Local manual
 Backend:
 - cd API
 - pip install -r requirements.txt
@@ -210,19 +543,26 @@ Dashboard:
 - streamlit run app.py
 
 =================================================================
-10) PONTOS DE EVOLUÇÃO QUE EU JÁ MAPEIEI
+15) PONTOS DE EVOLUÇÃO MAPEADOS
 =================================================================
 
-- Expandir testes automatizados para fluxos críticos de pedido/pagamento
-- Melhorar observabilidade com métricas de negócio por endpoint
-- Evoluir regras visuais no Dashboard para reduzir edição direta de JSON
-- Fortalecer validações de schema das regras de exceção
+- Consolidar de vez a migração funcional do legado cerebro.py para o agente v2 em toda a base histórica
+- Expandir o editor visual de secoes_configuraveis para experiências mais guiadas por cards e templates por nicho
+- Fortalecer schema validation de regras_excecao_json no backend
+- Aumentar cobertura de testes automatizados de fluxos críticos
+- Melhorar observabilidade e tratamento de erros em metricas_gastos_restaurante
 
 =================================================================
-11) RESUMO FINAL
+16) RESUMO FINAL
 =================================================================
 
-Este projeto foi desenhado para produção real: conversa natural com cliente, validação forte no backend e operação organizada no painel.
-Meu foco foi equilibrar flexibilidade comercial com segurança operacional.
+O projeto atual já é um SaaS multi-tenant com isolamento por restaurante e suporte a perfis operacionais por tenant.
+A operação principal roda com um agente conversacional v2, tools explícitas, regras fortes no backend e um Dashboard administrativo já adaptado para gestão visual de cardápio inteligente.
+
+A diretriz arquitetural permanece a mesma e está correta para produção:
+- IA interpreta
+- Backend valida
+- Banco persiste
+- Operação acompanha no painel
 
 Fim.

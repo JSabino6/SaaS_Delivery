@@ -14,6 +14,11 @@ Objetivo:
 - `03-checkout-flow/`: fluxos de checkout sem friccao e tratamento de contexto.
 - `_templates/`: modelos para novos snippets.
 
+Arquivos de showcase incluidos:
+- `01-defensive-ai/v2_guard_tool_args_showcase.py`
+- `02-regression-tests/agent_v2_regression_showcase.py`
+- `03-checkout-flow/checkout_transition_showcase.py`
+
 ## Regras de publicacao
 
 1. Remover tokens, URLs privadas, IDs de cliente e qualquer dado sensivel.

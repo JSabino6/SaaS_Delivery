@@ -2,6 +2,8 @@
 
 ### Atendimento de WhatsApp para Delivery em escala SaaS, com IA conversacional e backend deterministico para operacao real.
 
+**(Profissional/SaaS):** O Delivery AI Ops Engine e uma inteligencia artificial autonoma projetada para assumir 100% do atendimento de delivery via WhatsApp. O sistema elimina gargalos em horarios de pico, aplica regras de negocio em tempo real e recupera vendas com estrategias de upsell guiadas por contexto.
+
 ---
 
 ## Problema vs. Solucao
@@ -26,6 +28,16 @@ Resultado: mais throughput, menos erro humano e uma operacao previsivel mesmo em
 
 ---
 
+## Proposta de Valor (Portfolio)
+
+Este repositorio foi organizado para entrevistas tecnicas e avaliacao de senioridade em engenharia aplicada a IA:
+- design de sistema orientado a operacao real;
+- confiabilidade em fluxo conversacional com estado;
+- seguranca de agente (defensive AI);
+- conciliacao entre LLM e validacao deterministica de negocio.
+
+---
+
 ## Arquitetura Tecnica
 
 Stack principal:
@@ -41,6 +53,13 @@ Componentes:
 
 Principio de engenharia:
 **A IA interpreta. O backend decide.**
+
+Fluxo macro:
+1. Webhook recebe mensagem do WhatsApp.
+2. Agente de IA interpreta intencao e prepara acao.
+3. Backend valida cardapio, estoque, taxa, checkout e pagamento.
+4. Dashboard acompanha operacao em tempo real.
+5. Sessao WhatsApp pode ser auto-recuperada por QR sem suporte manual.
 
 ---
 
@@ -68,23 +87,35 @@ Principio de engenharia:
 
 ---
 
+## Conteudo Curado para Entrevista
+
+Para evitar exposicao de logica proprietaria, o repositorio possui uma camada de showcase em snippets sanitizados:
+- `snippets/01-defensive-ai/`
+- `snippets/02-regression-tests/`
+- `snippets/03-checkout-flow/`
+
+Sugestao de leitura para avaliadores:
+1. Defensive AI (guardrails e sanitizacao)
+2. Regressao de agente (cenarios de robustez)
+3. Checkout sem friccao (transicoes de estado)
+
+---
+
 ## Estrutura do Repositorio
 
 ```text
 .
-├─ API/
-│  ├─ main.py
-│  ├─ banco.py
-│  ├─ zap.py
-│  ├─ cerebro_v2_agente.py
-│  ├─ checklist_agent_v2_regressions.py
-│  └─ ...
-├─ Dashboard/
-│  ├─ app.py
-│  └─ ...
+├─ API/                        # codigo operacional (privado por natureza de negocio)
+├─ Dashboard/                  # camada de operacao
+├─ snippets/                   # recortes seguros para portfolio publico
+│  ├─ 01-defensive-ai/
+│  ├─ 02-regression-tests/
+│  ├─ 03-checkout-flow/
+│  └─ _templates/
 ├─ CONFIGURACAO_DO_BOT.txt
 ├─ DOCUMENTACAO_COMPLETA_DO_CODIGO.txt
 ├─ SECURITY_NEXT_STEPS.md
+├─ PORTFOLIO_SHOWCASE.md
 └─ docker-compose.yml
 ```
 
@@ -124,6 +155,8 @@ Este repositorio e um **showcase arquitetural e tecnico**.
 Ele demonstra design de sistema, padroes de engenharia e recortes seguros de implementacao. O motor principal de negocio, componentes proprietarios e partes criticas de producao pertencem a um **SaaS de codigo fechado**.
 
 Nao representa o produto comercial completo nem contem todos os ativos internos utilizados em ambiente real.
+
+Em outras palavras: este repo mostra **arquitetura, padroes e engenharia**, nao o produto SaaS completo.
 
 ---
 
