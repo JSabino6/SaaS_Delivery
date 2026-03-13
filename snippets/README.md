@@ -26,7 +26,7 @@ Arquivos de showcase incluidos:
 3. Manter snippets autocontidos e com dependencia minima.
 4. Incluir contexto de entrada/saida no README local do snippet.
 5. Nao publicar regras de negocio proprietarias completas. 
-
+ 
 ## Header recomendado para cada snippet
 
 Use o template em `_templates/snippet_header.md`.
