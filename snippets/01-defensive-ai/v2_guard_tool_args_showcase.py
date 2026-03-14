@@ -1,7 +1,6 @@
 """
 Snippet de portfolio: validacao defensiva de argumentos para tools de um agente.
 
-Este exemplo e sanitizado para demonstrar o padrao tecnico sem expor logica proprietaria.
 """
 
 from __future__ import annotations
