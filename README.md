@@ -16,7 +16,7 @@ Plataforma SaaS para automacao de atendimento de delivery via WhatsApp, com foco
 2. Problema que o projeto resolve
 3. Solucao proposta
 4. Principais resultados
-5. Galeria (placeholders para voce inserir prints)
+5. Galeria 
 6. Resumo das tecnologias (curto e objetivo)
 7. Stack detalhada
 8. Arquitetura do sistema
@@ -96,7 +96,7 @@ Diferencial:
 
 ---
 
-## Galeria (placeholders para voce inserir prints)
+## Galeria 
 
 - <img width="2559" height="1331" alt="image" src="https://github.com/user-attachments/assets/f47aa765-25c5-4bb9-8384-94630c2dc37d" />
 
