@@ -433,5 +433,3 @@ Checklist mental correto para manutenção:
 - Cardápio certo?
 - Regras certas?
 - Backend validando tudo?
-
-Fim.
