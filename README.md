@@ -1,167 +1,487 @@
 # Delivery AI Ops Engine
 
-### Atendimento de WhatsApp para Delivery em escala SaaS, com IA conversacional e backend deterministico para operacao real.
+Plataforma SaaS para automacao de atendimento de delivery via WhatsApp, com foco em operacao multi-tenant, checkout robusto, regras de negocio deterministicas e observabilidade de ponta a ponta.
 
-**(Profissional/SaaS):** O Delivery AI Ops Engine e uma inteligencia artificial autonoma projetada para assumir 100% do atendimento de delivery via WhatsApp. O sistema elimina gargalos em horarios de pico, aplica regras de negocio em tempo real e recupera vendas com estrategias de upsell guiadas por contexto.
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](#)
+[![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white)](#)
+[![Supabase](https://img.shields.io/badge/Supabase-Postgres-3ECF8E?logo=supabase&logoColor=white)](#)
+[![WhatsApp](https://img.shields.io/badge/WhatsApp-Automation-25D366?logo=whatsapp&logoColor=white)](#)
+[![Status](https://img.shields.io/badge/QA%20Bateria%20Obrigatoria-PASSOU-brightgreen)](#)
 
-<img width="1368" height="1233" alt="image" src="https://github.com/user-attachments/assets/2df49dcf-5592-4fc0-8cd2-e292b79ceee0" />
+---
+
+## Sumario
+
+1. Visao geral
+2. Problema que o projeto resolve
+3. Solucao proposta
+4. Principais resultados
+5. Galeria (placeholders para voce inserir prints)
+6. Resumo das tecnologias (curto e objetivo)
+7. Stack detalhada
+8. Arquitetura do sistema
+9. Fluxo funcional (cliente ate finalizacao)
+10. Estrutura do repositorio
+11. Modulos principais
+12. Regras de negocio e guardrails
+13. Banco de dados e SQLs do projeto
+14. Integracoes externas
+15. Setup local (passo a passo)
+16. Variaveis de ambiente
+17. Como rodar API, painel e webhook
+18. Testes e validacao de regressao
+19. Observabilidade, logs e operacao
+20. Seguranca e hardening
+21. Deploy e ambiente produtivo
+22. Roadmap tecnico
+23. Licenca e uso
+
+---
+
+## Visao geral
+
+O Delivery AI Ops Engine foi criado para operar atendimento de delivery em escala sem perder consistencia de negocio.
+
+Principio de engenharia central:
+
+- IA interpreta linguagem natural.
+- Backend deterministico valida e decide.
+- Persistencia garante rastreabilidade e continuidade de estado.
+
+Isso evita que o sistema dependa apenas da IA para decidir preco, taxa, fechamento, validacoes e finalizacao de pedido.
+
+---
+
+## Problema que o projeto resolve
+
+Times de atendimento de delivery normalmente enfrentam:
+
+- fila de mensagens em horario de pico;
+- erros de fechamento de pedido;
+- perdas por abandono de checkout;
+- inconsistencias na aplicacao de regras;
+- dificuldade para manter qualidade sob carga.
+
+Esse projeto resolve esses pontos com um fluxo conversacional orientado a estado e validacoes deterministicas no backend.
+
+---
+
+## Solucao proposta
+
+A solucao combina:
+
+- atendimento conversacional via WhatsApp;
+- API transacional com validacoes de negocio;
+- memoria de checkout e estado de conversa por cliente;
+- painel web para operacao e administracao;
+- camada de pagamentos e webhooks;
+- rotinas de cron e monitoramento.
+
+Diferencial:
+
+- suporte a multi-intencao no mesmo turno;
+- robustez para pedidos incompletos (ex.: endereco sem numero);
+- confirmacao final unificada de checkout;
+- bateria de QA conversacional com cenarios reais.
+
+---
+
+## Principais resultados
+
+- Fluxo de checkout unificado com confirmacao final unica.
+- Guardrails para evitar saida indevida do checkout.
+- Slot filling incremental para endereco (rua -> numero).
+- Melhor comportamento para pedidos multi-item no mesmo texto.
+- Bateria obrigatoria de QA executada com status PASS.
+
+---
+
+## Galeria (placeholders para voce inserir prints)
+
+- <img width="2559" height="1331" alt="image" src="https://github.com/user-attachments/assets/f47aa765-25c5-4bb9-8384-94630c2dc37d" />
+
+- <img width="1441" height="1028" alt="image" src="https://github.com/user-attachments/assets/5026505e-7469-45bd-88ff-130ae267ccd4" />
+
+<img width="602" height="1127" alt="image" src="https://github.com/user-attachments/assets/c636ad3d-1707-476d-b622-2fc6f4f745c3" />
+
+<img width="599" height="1117" alt="image" src="https://github.com/user-attachments/assets/a9338c25-b371-47c5-92fd-a85983534fff" />
+
+<img width="2192" height="1163" alt="image" src="https://github.com/user-attachments/assets/6ea5d2e1-6640-4153-8989-5fcd63fbfdec" />
+
+<img width="1975" height="1203" alt="image" src="https://github.com/user-attachments/assets/0f7b8f18-a0b9-425a-87af-80655c5b931a" />
 
 
 ---
 
-## Problema vs. Solucao
+## Resumo das tecnologias
 
-### O caos
-Na sexta-feira a noite, o atendimento humano entra em colapso:
-- filas de mensagens no WhatsApp;
-- erros de pedido por pressa;
-- atrasos em checkout e pagamento;
-- perda de venda por falta de padrao;
-- dependencia total do suporte tecnico para incidentes operacionais.
-
-### A solucao
-Este projeto implementa um motor de atendimento com IA que escala operacao sem perder controle:
-- interpreta intencao do cliente em linguagem natural;
-- valida regras de negocio no backend (nao no modelo);
-- fecha checkout com fluxo sem friccao;
-- integra pagamento Pix e operacao em tempo real;
-- permite auto-recuperacao de sessao WhatsApp via QR Code.
-
-Resultado: mais throughput, menos erro humano e uma operacao previsivel mesmo em pico de demanda.
+- Backend: Python + FastAPI + Uvicorn.
+- IA: Groq (tool-calling com guardrails no backend).
+- Banco: Supabase (Postgres) com scripts SQL de evolucao.
+- Cache/estado: Redis.
+- Integracoes: WhatsApp provider (Uazapi), Mercado Pago, Google Maps/Distance.
+- Frontend: Painel web modular (HTML + JavaScript).
+- Infra local: Docker Compose + .env.
+- Observabilidade: logs estruturados + request-id + health checks.
 
 ---
 
-## Proposta de Valor (Portfolio)
+## Stack detalhada
 
-Este repositorio foi organizado para entrevistas tecnicas e avaliacao de senioridade em engenharia aplicada a IA:
-- design de sistema orientado a operacao real;
-- confiabilidade em fluxo conversacional com estado;
-- seguranca de agente (defensive AI);
-- conciliacao entre LLM e validacao deterministica de negocio.
+### Backend
 
----
+- FastAPI
+- Uvicorn
+- Jinja2
+- python-dotenv
+- requests / urllib3
+- python-multipart
 
-## Arquitetura Tecnica
+### IA e orquestracao
 
-Stack principal:
-- Python: FastAPI no backend e Streamlit no dashboard operacional.
-- Supabase (Postgres): persistencia multi-tenant, pedidos, estados de conversa e configuracoes.
-- Groq: inferencia LLM para roteamento de intencao e condução conversacional.
-- WhatsApp API (uazapi): entrada e saida de mensagens, status de instancia e reconexao por QR.
+- Groq SDK
+- Tool calling com validacao deterministica de argumentos
 
-Componentes:
-- API: processamento de webhook, agente conversacional v2, validacao de checkout, pagamentos, cron jobs e endpoints administrativos.
-- Dashboard: operacao de pedidos, cardapio, regras de negocio, metricas e monitoramento de conexao WhatsApp.
-- Redis (recomendado): deduplicacao, debounce, locks e cache operacional.
+### Persistencia e estado
 
-Principio de engenharia:
-**A IA interpreta. O backend decide.**
+- Supabase (Postgres)
+- Redis
 
-Fluxo macro:
-1. Webhook recebe mensagem do WhatsApp.
-2. Agente de IA interpreta intencao e prepara acao.
-3. Backend valida cardapio, estoque, taxa, checkout e pagamento.
-4. Dashboard acompanha operacao em tempo real.
-5. Sessao WhatsApp pode ser auto-recuperada por QR sem suporte manual.
+### Seguranca e auth
 
----
+- PyJWT
+- cryptography
 
-## Engineering Highlights
- 
-### 1) Defensive AI
-- Blindagem contra prompt injection e tentativas de exfiltracao de regras internas.
-- Guardrails para evitar alucinacoes de desconto, cupom, brinde e promessas nao autorizadas.
-- Enforcement de argumentos de tools com sanitizacao e validacao de limites.
+### Pagamentos e geolocalizacao
 
-### 2) Fuzzy Matching / Fallback
-- Reconhecimento tolerante de itens (aliases, variacoes de escrita e contexto).
-- Quando item nao existe ou esta indisponivel, o fluxo sugere alternativa valida sem quebrar a jornada.
-- Mantem consistencia com cardapio oficial e estoque real.
+- Mercado Pago (webhook + OAuth + transacoes)
+- Google APIs (validacao/geocoding/distancia)
 
-### 3) Checkout Sem Friccao
-- Mudancas de item durante checkout sem reset de conversa.
-- Continuidade por contexto: carrinho, endereco, pagamento e confirmacao final.
-- Regras deterministicas para taxa, total e fechamento de pedido.
+### Frontend operacional
 
-### 4) Auto-Recuperacao de Sessao WhatsApp
-- Monitoramento de status de instancia.
-- Gatilho de reconexao quando necessario. 
-- Geracao e entrega de QR Code em base64 para o proprio usuario final recuperar o bot sem acionar suporte.
+- Painel Web em (HTML + JS modular)
 
 ---
 
-## Conteudo Curado para Entrevista
+## Arquitetura do sistema
 
-Para evitar exposicao de logica proprietaria, o repositorio possui uma camada de showcase em snippets sanitizados:
-- `snippets/01-defensive-ai/`
-- `snippets/02-regression-tests/`
-- `snippets/03-checkout-flow/`
-
-Sugestao de leitura para avaliadores:
-1. Defensive AI (guardrails e sanitizacao)
-2. Regressao de agente (cenarios de robustez)
-3. Checkout sem friccao (transicoes de estado)
-
----
-
-## Estrutura do Repositorio
-
-```text
-.
-├─ API/                        # codigo operacional (privado por natureza de negocio)
-├─ Dashboard/                  # camada de operacao
-├─ snippets/                   # recortes seguros para portfolio publico
-│  ├─ 01-defensive-ai/
-│  ├─ 02-regression-tests/
-│  ├─ 03-checkout-flow/
-│  └─ _templates/
-├─ CONFIGURACAO_DO_BOT.txt
-├─ DOCUMENTACAO_COMPLETA_DO_CODIGO.txt
-├─ PORTFOLIO_SHOWCASE.md
-└─ docker-compose.yml
+```mermaid
+flowchart TD
+    A[Cliente no WhatsApp] --> B[Webhook FastAPI]
+    B --> C[Orquestrador Conversacional]
+    C --> D[Guardrails e Regras de Negocio]
+    D --> E[Supabase/Postgres]
+    D --> F[Redis]
+    C --> G[Groq LLM]
+    D --> H[Mercado Pago]
+    D --> I[Google APIs]
+    E --> J[Painel Web]
+    B --> J
 ```
 
+### Camadas
+
+1. Entrada de eventos: webhook e endpoints HTTP.
+2. Orquestracao: classifica intencao e conduz estado.
+3. Regras deterministicas: valida contrato de tool e negocio.
+4. Persistencia: pedidos, perfil, estado, metricas.
+5. Operacao: painel web para acompanhamento e administracao.
+
 ---
 
-## Operacao Rapida
+## Fluxo funcional (cliente ate finalizacao)
 
-### 1) API
+1. Cliente envia mensagem no WhatsApp.
+2. API recebe webhook e identifica tenant/restaurante.
+3. Estado atual e carregado (pedido, checkout, pendencias).
+4. Agente interpreta a mensagem.
+5. Backend valida argumentos e regras.
+6. Itens/endereco/pagamento sao normalizados.
+7. Quando pronto, sistema envia resumo final unico.
+8. Cliente confirma.
+9. Pedido e finalizado e persistido.
+10. Painel e logs refletem toda a trilha.
+
+---
+
+## Estrutura do repositorio
+
+text
+.
+├─ API/
+│  ├─ main.py
+│  ├─ banco.py
+│  ├─ cerebro_v2_agente.py
+│  ├─ routes/
+│  ├─ services/
+│  ├─ templates/
+│  └─ requirements.txt
+├─ Painel_Web/
+│  ├─ index.html
+│  ├─ app.js
+│  ├─ core/
+│  ├─ pedidos/
+│  ├─ cardapio/
+│  ├─ metricas/
+│  ├─ motoboys/
+│  └─ admin/
+├─ docker-compose.yml
+
+
+## Modulos principais
+
+### API
+
+- `API/main.py`: composicao da API, routers, middlewares, health e endpoints principais.
+- `API/banco.py`: regras de negocio, persistencia, checkout, pagamentos, cron e integracoes.
+- `API/cerebro_v2_agente.py`: nucleo conversacional com guardrails e maquina de estado.
+
+### Painel web
+
+- `Painel_Web/index.html`: shell principal da interface.
+- `Painel_Web/app.js`: bootstrap e orquestracao frontend.
+- `Painel_Web/core/`: configuracao e camada base.
+- Demais pastas: dominios funcionais por area operacional.
+
+---
+
+## Regras de negocio e guardrails
+
+O projeto aplica validacoes robustas antes de qualquer acao critica.
+
+Exemplos:
+
+- bloqueio de finalizacao sem checkout completo;
+- endereco de entrega validado e normalizado;
+- tratamento incremental de endereco (rua e depois numero);
+- confirmacao final unica para fechamento;
+- protecao contra respostas neutras desviando fluxo;
+- conduta para pedidos multi-item no mesmo turno.
+
+---
+
+## Banco de dados e SQLs do projeto
+
+O repositorio inclui scripts SQL para:
+
+- criacao/evolucao de tabelas;
+- visoes analiticas;
+- hardening de RLS e multi-tenant;
+- recursos de pagamento e metricas;
+- tabelas de pedidos, itens, entregas, clientes e operacao.
+
+Arquivos SQL relevantes estao na raiz com prefixo `supabase_`.
+
+---
+
+## Integracoes externas
+
+### WhatsApp provider
+
+- Entrada e saida de mensagens
+- Fluxo de webhook
+
+### Groq
+
+- Interpretacao de linguagem natural
+- Sem delegar decisao transacional critica para o modelo
+
+### Supabase
+
+- Banco principal (dados transacionais e operacionais)
+
+### Redis
+
+- Estado auxiliar, lock e performance operacional
+
+### Mercado Pago
+
+- Checkout online, webhook de pagamento e OAuth connect
+
+### Google APIs
+
+- Validacao/geocoding de endereco
+- Distancia para suporte a regras de entrega
+
+---
+
+## Setup local (passo a passo)
+
+### 1) Pre-requisitos
+
+- Python 3.10+
+- pip
+- conta/projeto Supabase
+- credenciais de integracoes
+
+### 2) Clone do repositorio
+
+```bash
+git clone <URL_DO_REPOSITORIO>
+cd "Saas - Delivery - HTML"
+```
+
+### 3) Ambiente virtual
+
+```bash
+python -m venv .venv
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+```
+
+### 4) Dependencias da API
+
 ```bash
 cd API
 pip install -r requirements.txt
+cd ..
+```
+
+### 5) Arquivo de ambiente
+
+Crie/ajuste `.env` com as variaveis necessarias (veja secao abaixo).
+
+### 6) Subir API
+
+```bash
+cd API
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 2) Dashboard
+### 7) Servir painel web estatico (opcional local)
+
+Em outro terminal:
+
 ```bash
-cd Dashboard
-pip install -r requirements.txt
-streamlit run app.py
+cd Painel_Web
+python -m http.server 5500
 ```
 
-### 3) Variaveis essenciais
-- SUPABASE_URL
-- SUPABASE_KEY
-- GROQ_API_KEY
-- WEBHOOK_SECRET
-- PUBLIC_BASE_URL
-- CACHE_INVALIDATE_URL
-- CACHE_INVALIDATE_TOKEN
+Abra no navegador:
+
+- API: `http://localhost:8000/health`
+- Painel: `http://localhost:5500`
 
 ---
 
-## Showcase Disclaimer (Obrigatorio)
+## Variaveis de ambiente
 
-Este repositorio e um **showcase arquitetural e tecnico**.
+> Importante: nunca versione segredos reais no GitHub.
 
-Ele demonstra design de sistema, padroes de engenharia e recortes seguros de implementacao. O motor principal de negocio, componentes proprietarios e partes criticas de producao pertencem a um **SaaS de codigo fechado**.
+### Exemplo minimo (modelo)
 
-Nao representa o produto comercial completo nem contem todos os ativos internos utilizados em ambiente real.
+```dotenv
+SUPABASE_URL=https://SEU_PROJETO.supabase.co
+SUPABASE_KEY=SEU_SUPABASE_SERVICE_KEY
+GROQ_API_KEY=SUA_CHAVE_GROQ
+REDIS_URL=redis://USER:PASS@HOST:PORT
+WEBHOOK_SECRET=SEU_SEGREDO_WEBHOOK
+PUBLIC_BASE_URL=https://SEU_DOMINIO_PUBLICO
+CORS_ALLOW_ORIGINS=http://localhost:5500,http://localhost:3000
+```
 
-Em outras palavras: este repo mostra **arquitetura, padroes e engenharia**, nao o produto SaaS completo.
+### Variaveis comuns no projeto
+
+- `EVOLUTION_API_URL`
+- `EVOLUTION_API_KEY`
+- `GROQ_API_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `REDIS_URL`
+- `WEBHOOK_SECRET`
+- `MP_WEBHOOK_TOKEN`
+- `MERCADOPAGO_CLIENT_ID`
+- `MERCADOPAGO_CLIENT_SECRET`
+- `MERCADOPAGO_REDIRECT_URI`
+- `GOOGLE_DISTANCE_MATRIX_API_KEY`
+- `MAPS_PUBLIC_KEY` ou `Maps_PUBLIC_KEY`
 
 ---
 
-## Licenciamento e Uso
+##rodar webhook com URL publica (ngrok)
 
-Use este repositorio como referencia de arquitetura, boas praticas e estudo de integracao entre IA conversacional e operacao de delivery.
+### 1) Expor API local
+
+```bash
+ngrok http 8000
+```
+
+### 2) URL de webhook
+
+Use o formato:
+
+```text
+https://SEU_SUBDOMINIO.ngrok-free.app/webhook?token=SEU_WEBHOOK_SECRET
+```
+
+### 3) Configurar no provedor WhatsApp
+
+- Defina a URL publica do webhook.
+- Garanta que o token confere com `WEBHOOK_SECRET`.
+
+---
+
+## Testes e validacao de regressao
+
+O projeto possui scripts para checklists e QA conversacional.
+
+Exemplos:
+
+- `API/checklist_agent_v2_regressions.py`
+- `API/qa_bateria_obrigatoria_whatsapp.py`
+
+### Execucao da bateria obrigatoria
+
+```bash
+python API/qa_bateria_obrigatoria_whatsapp.py
+```
+
+Saida esperada:
+
+- gera `API/qa_bateria_obrigatoria_whatsapp_report.json`
+- traz resultado por cenario
+- campo final `evaluation.passed`
+
+---
+
+## Observabilidade, logs e operacao
+
+### Logs
+
+- API usa logging estruturado e request-id.
+- Arquivos de log ficam em `logs/`.
+
+### Health checks
+
+- Endpoint de saude: `/health`.
+
+### Operacao diaria recomendada
+
+- monitorar falhas de webhook;
+- acompanhar latencia e erro por rota;
+- validar periodicamente fluxo de checkout;
+- revisar metricas de abandono.
+
+---
+
+## Seguranca e hardening
+
+Praticas aplicadas:
+
+- isolamento multi-tenant por restaurante;
+- regras deterministicas para acoes criticas;
+- validacao de argumentos de tools;
+- hardening de RLS no Supabase;
+- segregacao entre inferencia e decisao transacional.
+
+
+## Deploy e ambiente produtivo
+
+Checklist de producao:
+
+1. HTTPS habilitado em todos os endpoints.
+2. `PUBLIC_BASE_URL` correto.
+3. Webhooks configurados com token.
+4. CORS restrito a origens reais.
+5. Logs e alertas ativos.
